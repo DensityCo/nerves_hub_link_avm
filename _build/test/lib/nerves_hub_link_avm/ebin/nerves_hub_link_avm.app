@@ -1,0 +1,11 @@
+{application,nerves_hub_link_avm,
+             [{modules,['Elixir.NervesHubLinkAVM',
+                        'Elixir.NervesHubLinkAVM.Channel',
+                        'Elixir.NervesHubLinkAVM.HTTPClient',
+                        'Elixir.NervesHubLinkAVM.State',
+                        'Elixir.NervesHubLinkAVM.UpdateHandler',websocket]},
+              {optional_applications,[]},
+              {applications,[kernel,stdlib,elixir]},
+              {description,"nerves_hub_link_avm"},
+              {registered,[]},
+              {vsn,"0.1.0"}]}.

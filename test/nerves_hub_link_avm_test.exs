@@ -1,0 +1,221 @@
+defmodule NervesHubLinkAVMTest do
+  use ExUnit.Case
+
+  alias NervesHubLinkAVM.Channel
+
+  defmodule MockHandler do
+    @behaviour NervesHubLinkAVM.UpdateHandler
+
+    @impl true
+    def handle_begin(size, meta) do
+      send(:test_proc, {:begin, size, meta})
+      {:ok, %{chunks: []}}
+    end
+
+    @impl true
+    def handle_chunk(data, state) do
+      {:ok, %{state | chunks: state.chunks ++ [data]}}
+    end
+
+    @impl true
+    def handle_finish(sha256, _state) do
+      send(:test_proc, {:finish, sha256})
+      :ok
+    end
+
+    @impl true
+    def handle_confirm do
+      send(:test_proc, :confirm)
+      :ok
+    end
+
+    @impl true
+    def handle_abort(state) do
+      send(:test_proc, {:abort, state})
+      :ok
+    end
+  end
+
+  defp default_opts do
+    [
+      host: "hub.example.com",
+      device_cert: "fake_cert",
+      device_key: "fake_key",
+      firmware_meta: %{"uuid" => "test-uuid", "version" => "1.0.0"},
+      update_handler: MockHandler
+    ]
+  end
+
+  describe "init/1" do
+    test "initializes state from opts" do
+      # We intercept the :connect message to prevent actual connection attempts
+      {:ok, state} = NervesHubLinkAVM.init(default_opts())
+
+      assert state.host == "hub.example.com"
+      assert state.port == 443
+      assert state.ssl == true
+      assert state.device_cert == "fake_cert"
+      assert state.device_key == "fake_key"
+      assert state.firmware_meta == %{"uuid" => "test-uuid", "version" => "1.0.0"}
+      assert state.update_handler == MockHandler
+      assert state.msg_ref == 0
+      assert state.phase == :disconnected
+      assert state.backoff == 1_000
+
+      # init sends :connect to self
+      assert_receive :connect
+    end
+
+    test "uses default port 443 and ssl true" do
+      {:ok, state} = NervesHubLinkAVM.init(default_opts())
+      assert state.port == 443
+      assert state.ssl == true
+      assert_receive :connect
+    end
+
+    test "allows overriding port and ssl" do
+      opts = Keyword.merge(default_opts(), port: 4000, ssl: false)
+      {:ok, state} = NervesHubLinkAVM.init(opts)
+      assert state.port == 4000
+      assert state.ssl == false
+      assert_receive :connect
+    end
+
+    test "raises on missing required opts" do
+      assert_raise KeyError, fn ->
+        NervesHubLinkAVM.init(host: "example.com")
+      end
+    end
+  end
+
+  describe "handle_info/2 - websocket messages" do
+    setup do
+      {:ok, state} = NervesHubLinkAVM.init(default_opts())
+      assert_receive :connect
+      fake_ws = self()
+      state = %{state | ws_pid: fake_ws, phase: :connected}
+      {:ok, state: state, ws: fake_ws}
+    end
+
+    test "websocket_open triggers join", %{state: state} do
+      ws = state.ws_pid
+      {:noreply, new_state} = NervesHubLinkAVM.handle_info({:websocket_open, ws}, state)
+      assert new_state.phase == :connected
+      assert new_state.join_ref =~ "join_"
+    end
+
+    test "channel join reply transitions to joined phase", %{state: state, ws: ws} do
+      # First do the join
+      {:noreply, state} = NervesHubLinkAVM.handle_info({:websocket_open, ws}, state)
+
+      # Simulate server replying with join success
+      reply = Channel.encode_message(state.join_ref, "ref_0", "device", "phx_reply", %{"status" => "ok"})
+      {:noreply, new_state} = NervesHubLinkAVM.handle_info({:websocket, ws, IO.iodata_to_binary(reply)}, state)
+
+      assert new_state.phase == :joined
+      assert new_state.heartbeat_ref != nil
+    end
+
+    test "websocket_close triggers reconnect", %{state: state, ws: ws} do
+      {:noreply, new_state} =
+        NervesHubLinkAVM.handle_info({:websocket_close, ws, {true, 1000, "bye"}}, state)
+
+      assert new_state.phase == :disconnected
+      assert new_state.reconnect_ref != nil
+      assert_receive :connect, 2000
+    end
+
+    test "ignores messages from unknown websocket pid", %{state: state} do
+      unknown_pid = spawn(fn -> :ok end)
+      {:noreply, ^state} = NervesHubLinkAVM.handle_info({:websocket, unknown_pid, "data"}, state)
+    end
+
+    test "malformed JSON raises (json module doesn't return errors)", %{state: state, ws: ws} do
+      # :json.decode raises on invalid input — this is expected behavior
+      # In production the websocket layer ensures only valid frames arrive
+      assert_raise ErlangError, fn ->
+        NervesHubLinkAVM.handle_info({:websocket, ws, "{bad json"}, state)
+      end
+    end
+  end
+
+  describe "handle_info/2 - channel messages" do
+    setup do
+      Process.register(self(), :test_proc)
+      {:ok, state} = NervesHubLinkAVM.init(default_opts())
+      assert_receive :connect
+      fake_ws = self()
+      state = %{state | ws_pid: fake_ws, phase: :joined, join_ref: "join_0"}
+      {:ok, state: state, ws: fake_ws}
+    end
+
+    test "phx_error triggers disconnect and reconnect", %{state: state, ws: ws} do
+      msg = Channel.encode_message("join_0", "ref_1", "device", "phx_error", %{"reason" => "crash"})
+
+      {:noreply, new_state} =
+        NervesHubLinkAVM.handle_info({:websocket, ws, IO.iodata_to_binary(msg)}, state)
+
+      assert new_state.phase == :disconnected
+      assert new_state.reconnect_ref != nil
+    end
+
+    test "phx_close triggers disconnect and reconnect", %{state: state, ws: ws} do
+      msg = Channel.encode_message("join_0", "ref_1", "device", "phx_close", %{})
+
+      {:noreply, new_state} =
+        NervesHubLinkAVM.handle_info({:websocket, ws, IO.iodata_to_binary(msg)}, state)
+
+      assert new_state.phase == :disconnected
+    end
+
+    test "unknown channel message is handled gracefully", %{state: state, ws: ws} do
+      msg = Channel.encode_message("join_0", "ref_1", "device", "unknown_event", %{})
+
+      {:noreply, ^state} =
+        NervesHubLinkAVM.handle_info({:websocket, ws, IO.iodata_to_binary(msg)}, state)
+    end
+  end
+
+  describe "handle_info/2 - heartbeat" do
+    test "heartbeat in joined phase reschedules" do
+      {:ok, state} = NervesHubLinkAVM.init(default_opts())
+      assert_receive :connect
+      state = %{state | phase: :joined, ws_pid: self(), join_ref: "j"}
+
+      {:noreply, new_state} = NervesHubLinkAVM.handle_info(:heartbeat, state)
+      assert new_state.heartbeat_ref != nil
+    end
+
+    test "heartbeat in non-joined phase is ignored" do
+      {:ok, state} = NervesHubLinkAVM.init(default_opts())
+      assert_receive :connect
+      state = %{state | phase: :connected}
+
+      {:noreply, ^state} = NervesHubLinkAVM.handle_info(:heartbeat, state)
+    end
+  end
+
+  describe "handle_call/3 - confirm_update" do
+    test "calls handler's handle_confirm when implemented" do
+      Process.register(self(), :test_proc)
+      {:ok, state} = NervesHubLinkAVM.init(default_opts())
+      assert_receive :connect
+
+      {:reply, :ok, _state} = NervesHubLinkAVM.handle_call(:confirm_update, {self(), make_ref()}, state)
+      assert_receive :confirm
+    end
+  end
+
+  describe "handle_cast/2 - reconnect" do
+    test "resets backoff and schedules connect" do
+      {:ok, state} = NervesHubLinkAVM.init(default_opts())
+      assert_receive :connect
+      state = %{state | backoff: 16_000, phase: :joined}
+
+      {:noreply, new_state} = NervesHubLinkAVM.handle_cast(:reconnect, state)
+      assert new_state.backoff == 1_000
+      assert new_state.phase == :disconnected
+      assert_receive :connect
+    end
+  end
+end
