@@ -11,13 +11,18 @@ defmodule NervesHubLinkAVM.MixProject do
       package: package(),
       deps: deps(),
       atomvm_opts: [start: NervesHubLinkAVM],
-      xref: [exclude: [:ahttp_client, :ssl]]
+      xref: [exclude: [:ahttp_client, :ssl]],
+      aliases: aliases()
     ]
+  end
+
+  def cli do
+    [preferred_envs: ["test.integration": :test]]
   end
 
   def application do
     [
-      extra_applications: []
+      extra_applications: [:crypto, :ssl]
     ]
   end
 
@@ -26,6 +31,12 @@ defmodule NervesHubLinkAVM.MixProject do
       maintainers: ["Eliel A. Gordon"],
       licenses: ["Apache-2.0"],
       links: %{"GitHub" => "https://github.com/DensityCo/nerves_hub_link_avm"}
+    ]
+  end
+
+  defp aliases do
+    [
+      "test.integration": ["test --include integration"]
     ]
   end
 

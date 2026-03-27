@@ -125,7 +125,9 @@ defmodule NervesHubLinkAVM do
 
   def handle_info({:websocket, ws_pid, raw}, %State{ws_pid: ws_pid} = state) do
     case Channel.decode_message(raw) do
-      {:ok, msg} -> handle_channel_message(msg, state)
+      {:ok, msg} ->
+        handle_channel_message(msg, state)
+
       {:error, reason} ->
         IO.puts("NervesHubLinkAVM: decode error: #{inspect(reason)}")
         {:noreply, state}
@@ -154,7 +156,10 @@ defmodule NervesHubLinkAVM do
 
   # -- Channel message handling --
 
-  defp handle_channel_message({_join_ref, _ref, "device", "phx_reply", %{"status" => "ok"}}, state) do
+  defp handle_channel_message(
+         {_join_ref, _ref, "device", "phx_reply", %{"status" => "ok"}},
+         state
+       ) do
     IO.puts("NervesHubLinkAVM: joined device channel")
     ref = Process.send_after(self(), :heartbeat, @heartbeat_interval)
     {:noreply, %{state | phase: :joined, heartbeat_ref: ref}}
@@ -290,7 +295,7 @@ defmodule NervesHubLinkAVM do
 
   defp build_ws_url(%State{host: host, port: port, ssl: ssl}) do
     scheme = if ssl, do: "wss", else: "ws"
-    "#{scheme}://#{host}:#{port}/socket/websocket"
+    "#{scheme}://#{host}:#{port}/socket/websocket?vsn=2.0.0"
   end
 
   defp send_join(state) do

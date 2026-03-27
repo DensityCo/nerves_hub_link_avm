@@ -4,6 +4,7 @@
     transport_accept/1,
     is_supported/0,
     new/1,
+    new/2,
     send_utf8/2,
     send_binary/2,
     controlling_process/2
@@ -54,8 +55,11 @@ controlling_process(Socket, Pid) ->
     gen_server:call(Socket, {controlling_process, self(), Pid}).
 
 new(URL) ->
+    new(URL, []).
+
+new(URL, Opts) ->
     ControllingProcess = self(),
-    {ok, Pid} = gen_server:start_link(?MODULE, {connect, ControllingProcess, URL}, []),
+    {ok, Pid} = gen_server:start_link(?MODULE, {connect, ControllingProcess, URL, Opts}, []),
     Pid.
 
 send_binary(WebSocket, Data) ->
@@ -86,8 +90,8 @@ init({accept, ControllingProcess, Transport}) ->
     },
     State1 = start_recv(State0),
     {ok, State1};
-init({connect, ControllingProcess, URL}) ->
-    {ok, Transport} = websocket_open(URL),
+init({connect, ControllingProcess, URL, Opts}) ->
+    {ok, Transport} = websocket_open(URL, Opts),
     ControllingProcess ! {websocket_open, self()},
     State0 = #state{
         controlling_process = ControllingProcess,
@@ -218,7 +222,7 @@ schedule_ssl_poll(State) ->
 
 %% -- URL parsing and connection --
 
-websocket_open(URL) ->
+websocket_open(URL, Opts) ->
     URLBin = list_to_binary(URL),
     {Scheme, Tail} = case URLBin of
         <<"wss://", T/binary>> -> {wss, T};
@@ -238,9 +242,10 @@ websocket_open(URL) ->
             end,
             {Host0, DefaultPort}
     end,
+    SslOpts = proplists:get_value(ssl_opts, Opts, []),
     Transport = case Scheme of
         ws -> connect_tcp(Host, Port);
-        wss -> connect_ssl(Host, Port)
+        wss -> connect_ssl(Host, Port, SslOpts)
     end,
     {ok, Sock} = Transport,
     Key = base64:encode(crypto:strong_rand_bytes(16)),
@@ -264,10 +269,13 @@ connect_tcp(Host, Port) ->
     ok = socket:connect(Socket, #{family => inet, addr => IPv4, port => Port}),
     {ok, {tcp, Socket}}.
 
-connect_ssl(Host, Port) ->
+connect_ssl(Host, Port, ExtraSslOpts) ->
     ok = ssl:start(),
     HostStr = binary_to_list(Host),
-    case ssl:connect(HostStr, Port, [{verify, verify_none}, {active, false}, {binary, true}]) of
+    {ok, IPv4} = inet:getaddr(HostStr, inet),
+    DefaultOpts = [{verify, verify_none}, {active, false}, {binary, true}],
+    MergedOpts = DefaultOpts ++ ExtraSslOpts,
+    case ssl:connect(IPv4, Port, MergedOpts, 10000) of
         {ok, SslSocket} -> {ok, {ssl, SslSocket}};
         {error, _} = Err -> Err
     end.
@@ -303,6 +311,12 @@ compute_socket_accept(WebSocketKey) ->
     PreImage = <<WebSocketKey/binary, MagicKey/binary>>,
     base64:encode(crypto:hash(sha, PreImage)).
 
+header_name_lower(Header) ->
+    case binary:split(Header, <<": ">>) of
+        [Name, Value] -> {string:lowercase(Name), Value};
+        _ -> {Header, <<>>}
+    end.
+
 process_handshake_open(Request) ->
     RequestLines = binary:split(Request, <<"\r\n">>, [global]),
     process_handshake_open(RequestLines, request).
@@ -328,16 +342,27 @@ process_handshake_open_reply(Reply, AcceptToken) ->
     ReplyLines = binary:split(Reply, <<"\r\n">>, [global]),
     process_handshake_open_reply0(ReplyLines, {request, AcceptToken}).
 
-process_handshake_open_reply0([<<"HTTP/1.1 101 Switching Protocols">> | Tail], {request, AcceptToken}) ->
+process_handshake_open_reply0([<<"HTTP/1.1 101", _/binary>> | Tail], {request, AcceptToken}) ->
         process_handshake_open_reply0(Tail, {headers, false, false, AcceptToken});
-process_handshake_open_reply0([<<"Upgrade: websocket">> | Tail], {headers, false, Conn, Key}) ->
-        process_handshake_open_reply0(Tail, {headers, true, Conn, Key});
-process_handshake_open_reply0([<<"Connection: Upgrade">> | Tail], {headers, Upgrade, false, Key}) ->
-        process_handshake_open_reply0(Tail, {headers, Upgrade, true, Key});
-process_handshake_open_reply0([<<"Sec-WebSocket-Accept: ", Key/binary>> | Tail], {headers, Upgrade, Conn, Key}) ->
-        process_handshake_open_reply0(Tail, {headers, Upgrade, Conn, true});
-process_handshake_open_reply0([_OtherHeader | Tail], {headers, Upgrade, Conn, Key}) ->
-        process_handshake_open_reply0(Tail, {headers, Upgrade, Conn, Key});
+process_handshake_open_reply0([Header | Tail], {headers, Upgrade, Conn, Key}) ->
+        case header_name_lower(Header) of
+            {<<"upgrade">>, <<"websocket">>} ->
+                process_handshake_open_reply0(Tail, {headers, true, Conn, Key});
+            {<<"connection">>, Val} ->
+                case string:lowercase(Val) of
+                    <<"upgrade">> ->
+                        process_handshake_open_reply0(Tail, {headers, Upgrade, true, Key});
+                    _ ->
+                        process_handshake_open_reply0(Tail, {headers, Upgrade, Conn, Key})
+                end;
+            {<<"sec-websocket-accept">>, AcceptVal} when is_binary(Key) ->
+                case AcceptVal =:= Key of
+                    true -> process_handshake_open_reply0(Tail, {headers, Upgrade, Conn, true});
+                    false -> process_handshake_open_reply0(Tail, {headers, Upgrade, Conn, Key})
+                end;
+            _ ->
+                process_handshake_open_reply0(Tail, {headers, Upgrade, Conn, Key})
+        end;
 process_handshake_open_reply0([], {headers, true, true, true}) ->
         ok;
 process_handshake_open_reply0(Lines, State) ->

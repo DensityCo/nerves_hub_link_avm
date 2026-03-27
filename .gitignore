@@ -1,0 +1,14 @@
+/_build/
+/deps/
+/doc/
+*.ez
+*.beam
+
+# Test artifacts
+/.mix_test_failures
+
+# Integration test generated certs
+test/integration/test-ca-key.pem
+test/integration/test-ca.srl
+test/integration/test-device-cert.pem
+test/integration/test-device.csr
