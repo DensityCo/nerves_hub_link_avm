@@ -50,7 +50,7 @@ defmodule NervesHubLinkAVM do
       :device_cert,
       :device_key,
       :firmware_meta,
-      :update_handler,
+      :device_handler,
       :ws_pid,
       :heartbeat_ref,
       :reconnect_ref,
@@ -74,7 +74,7 @@ defmodule NervesHubLinkAVM do
       device_cert: Keyword.fetch!(opts, :device_cert),
       device_key: Keyword.fetch!(opts, :device_key),
       firmware_meta: firmware_meta,
-      update_handler: Keyword.fetch!(opts, :update_handler),
+      device_handler: Keyword.fetch!(opts, :device_handler),
       msg_ref: 0,
       backoff: @initial_backoff
     }
@@ -84,7 +84,7 @@ defmodule NervesHubLinkAVM do
   end
 
   @impl true
-  def handle_call(:confirm_update, _from, %State{update_handler: handler} = state) do
+  def handle_call(:confirm_update, _from, %State{device_handler: handler} = state) do
     with :ok <- do_confirm(handler) do
       send_channel_message(state, "firmware_validated", %{})
       {:reply, :ok, %{state | firmware_validated: true}}
@@ -203,8 +203,8 @@ defmodule NervesHubLinkAVM do
   defp handle_channel_message({_join_ref, _ref, "device", "identify", _payload}, state) do
     IO.puts("NervesHubLinkAVM: identify requested")
 
-    if function_exported?(state.update_handler, :handle_identify, 0) do
-      state.update_handler.handle_identify()
+    if function_exported?(state.device_handler, :handle_identify, 0) do
+      state.device_handler.handle_identify()
     end
 
     {:noreply, state}
@@ -229,7 +229,7 @@ defmodule NervesHubLinkAVM do
   # -- Update pipeline --
 
   defp do_update(fw_url, meta, state) do
-    handler = state.update_handler
+    handler = state.device_handler
     parent = self()
     expected_sha256 = Map.get(meta, "sha256", "")
 

@@ -4,7 +4,7 @@ defmodule NervesHubLinkAVMTest do
   alias NervesHubLinkAVM.Channel
 
   defmodule MockHandler do
-    @behaviour NervesHubLinkAVM.UpdateHandler
+    @behaviour NervesHubLinkAVM.DeviceHandler
 
     @impl true
     def handle_begin(size, meta) do
@@ -54,7 +54,7 @@ defmodule NervesHubLinkAVMTest do
         "nerves_fw_version" => "1.0.0",
         "nerves_fw_platform" => "host"
       },
-      update_handler: MockHandler
+      device_handler: MockHandler
     ]
   end
 
@@ -70,7 +70,7 @@ defmodule NervesHubLinkAVMTest do
       assert state.device_key == "fake_key"
       assert state.firmware_meta["nerves_fw_uuid"] == "test-uuid"
       assert state.firmware_meta["nerves_fw_platform"] == "host"
-      assert state.update_handler == MockHandler
+      assert state.device_handler == MockHandler
       assert state.msg_ref == 0
       assert state.phase == :disconnected
       assert state.backoff == 1_000
@@ -250,7 +250,7 @@ defmodule NervesHubLinkAVMTest do
 
     test "does not set firmware_validated on handler error" do
       defmodule FailConfirmHandler do
-        @behaviour NervesHubLinkAVM.UpdateHandler
+        @behaviour NervesHubLinkAVM.DeviceHandler
         def handle_begin(_, _), do: {:ok, %{}}
         def handle_chunk(_, s), do: {:ok, s}
         def handle_finish(_), do: :ok
@@ -258,7 +258,7 @@ defmodule NervesHubLinkAVMTest do
         def handle_abort(_), do: :ok
       end
 
-      opts = Keyword.put(default_opts(), :update_handler, FailConfirmHandler)
+      opts = Keyword.put(default_opts(), :device_handler, FailConfirmHandler)
       {:ok, state} = NervesHubLinkAVM.init(opts)
       assert_receive :connect
       state = %{state | ws_pid: self(), phase: :joined, join_ref: "join_0"}

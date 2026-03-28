@@ -1,4 +1,4 @@
-defmodule NervesHubLinkAVM.UpdateHandler do
+defmodule NervesHubLinkAVM.DeviceHandler do
   @doc "Called once before streaming. size = total bytes, meta = firmware_meta map."
   @callback handle_begin(size :: non_neg_integer(), meta :: map()) ::
               {:ok, state :: term()} | {:error, reason :: term()}

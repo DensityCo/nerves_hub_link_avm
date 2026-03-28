@@ -1,8 +1,8 @@
-defmodule NervesHubLinkAVM.UpdateHandlerTest do
+defmodule NervesHubLinkAVM.DeviceHandlerTest do
   use ExUnit.Case, async: true
 
   defmodule TestHandler do
-    @behaviour NervesHubLinkAVM.UpdateHandler
+    @behaviour NervesHubLinkAVM.DeviceHandler
 
     @impl true
     def handle_begin(size, meta) do
@@ -34,7 +34,7 @@ defmodule NervesHubLinkAVM.UpdateHandlerTest do
   end
 
   defmodule FailingHandler do
-    @behaviour NervesHubLinkAVM.UpdateHandler
+    @behaviour NervesHubLinkAVM.DeviceHandler
 
     @impl true
     def handle_begin(_size, _meta), do: {:error, :no_space}
