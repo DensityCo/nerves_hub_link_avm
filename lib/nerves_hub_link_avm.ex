@@ -400,7 +400,7 @@ defmodule NervesHubLinkAVM do
 
   defp build_ws_url(%State{host: host, port: port, ssl: ssl}) do
     scheme = if ssl, do: "wss", else: "ws"
-    "#{scheme}://#{host}:#{port}/socket/websocket?vsn=2.0.0"
+    "#{scheme}://#{host}:#{port}/device-socket/websocket?vsn=2.0.0"
   end
 
   defp build_ws_opts(%State{ssl: ssl, auth: auth}) do
@@ -413,9 +413,9 @@ defmodule NervesHubLinkAVM do
 
   defp build_ssl_opts(false, _auth), do: []
   defp build_ssl_opts(true, {:certificate, cert, key}) do
-    [{:certfile, to_charlist(cert)}, {:keyfile, to_charlist(key)}, {:versions, [:"tlsv1.2"]}]
+    [{:certfile, to_charlist(cert)}, {:keyfile, to_charlist(key)}]
   end
-  defp build_ssl_opts(true, _auth), do: [{:versions, [:"tlsv1.2"]}]
+  defp build_ssl_opts(true, _auth), do: []
 
   defp build_auth_headers({:shared_secret, key, secret, identifier}) do
     NervesHubLinkAVM.SharedSecret.build_headers(key, secret, identifier)

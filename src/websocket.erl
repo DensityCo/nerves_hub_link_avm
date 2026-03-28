@@ -170,15 +170,16 @@ transport_send({ssl, Socket}, Data) ->
 
 transport_recv_blocking({tcp, Socket}, Timeout) ->
     socket:recv(Socket, 0, Timeout);
-transport_recv_blocking({ssl, Socket}, Timeout) ->
-    ssl:recv(Socket, 0, Timeout).
+transport_recv_blocking({ssl, Socket}, _Timeout) ->
+    ssl:recv(Socket, 0).
 
 %% -- Recv entry point --
 
 start_recv(#state{transport = {tcp, _}} = State) ->
     recv_data_loop_tcp(State);
 start_recv(#state{transport = {ssl, _}} = State) ->
-    recv_data_loop_ssl(State).
+    %% Don't block in init — schedule first poll immediately
+    schedule_ssl_poll(State).
 
 %% -- TCP recv (async select) --
 
@@ -198,24 +199,22 @@ recv_data_loop_tcp(
             State0#state{select_handle = SelectHandle}
     end.
 
-%% -- SSL recv (polling) --
+%% -- SSL recv (blocking, then schedule next read) --
 
 recv_data_loop_ssl(
     #state{transport = {ssl, SslSocket}, buffer = Buffer} = State0
 ) ->
-    case ssl:recv(SslSocket, 0, 0) of
+    case ssl:recv(SslSocket, 0) of
         {ok, Data} ->
             State1 = State0#state{buffer = <<Buffer/binary, Data/binary>>},
             State2 = process_recv_buffer(State1),
-            recv_data_loop_ssl(State2);
-        {error, timeout} ->
-            schedule_ssl_poll(State0);
+            schedule_ssl_poll(State2);
         {error, closed} ->
             State0#state{ready_state = closed}
     end.
 
 schedule_ssl_poll(#state{poll_timer = undefined} = State) ->
-    Ref = erlang:send_after(?SSL_POLL_INTERVAL, self(), ssl_poll),
+    Ref = erlang:send_after(100, self(), ssl_poll),
     State#state{poll_timer = Ref};
 schedule_ssl_poll(State) ->
     State.
@@ -318,9 +317,16 @@ compute_socket_accept(WebSocketKey) ->
 
 header_name_lower(Header) ->
     case binary:split(Header, <<": ">>) of
-        [Name, Value] -> {string:lowercase(Name), Value};
+        [Name, Value] -> {bin_lowercase(Name), Value};
         _ -> {Header, <<>>}
     end.
+
+bin_lowercase(Bin) -> bin_lowercase(Bin, <<>>).
+bin_lowercase(<<>>, Acc) -> Acc;
+bin_lowercase(<<C, Rest/binary>>, Acc) when C >= $A, C =< $Z ->
+    bin_lowercase(Rest, <<Acc/binary, (C + 32)>>);
+bin_lowercase(<<C, Rest/binary>>, Acc) ->
+    bin_lowercase(Rest, <<Acc/binary, C>>).
 
 process_handshake_open(Request) ->
     RequestLines = binary:split(Request, <<"\r\n">>, [global]),
@@ -354,7 +360,7 @@ process_handshake_open_reply0([Header | Tail], {headers, Upgrade, Conn, Key}) ->
             {<<"upgrade">>, <<"websocket">>} ->
                 process_handshake_open_reply0(Tail, {headers, true, Conn, Key});
             {<<"connection">>, Val} ->
-                case string:lowercase(Val) of
+                case bin_lowercase(Val) of
                     <<"upgrade">> ->
                         process_handshake_open_reply0(Tail, {headers, Upgrade, true, Key});
                     _ ->
