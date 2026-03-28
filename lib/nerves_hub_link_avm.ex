@@ -56,6 +56,7 @@ defmodule NervesHubLinkAVM do
       :join_ref,
       :extensions_join_ref,
       :msg_ref,
+      :http_client,
       extensions: %{},
       phase: :disconnected,
       backoff: 1_000,
@@ -76,6 +77,7 @@ defmodule NervesHubLinkAVM do
       firmware_meta: firmware_meta,
       device_handler: Keyword.fetch!(opts, :device_handler),
       extensions: Map.new(Keyword.get(opts, :extensions, [])),
+      http_client: Keyword.get(opts, :http_client, HTTPClient),
       msg_ref: 0,
       backoff: @initial_backoff
     }
@@ -201,8 +203,9 @@ defmodule NervesHubLinkAVM do
     meta = Map.get(payload, "firmware_meta", %{})
     IO.puts("NervesHubLinkAVM: update available")
     send_channel_message(state, "status_update", %{"status" => "received"})
+    server = self()
     state = %{state | phase: :updating}
-    spawn_link(fn -> do_update(fw_url, meta, state) end)
+    spawn_link(fn -> do_update(fw_url, meta, state, server) end)
     {:noreply, state}
   end
 
@@ -283,29 +286,39 @@ defmodule NervesHubLinkAVM do
 
   # -- Update pipeline --
 
-  defp do_update(fw_url, meta, state) do
+  defp do_update(fw_url, meta, state, server) do
     handler = state.device_handler
-    parent = self()
+    http = state.http_client
     expected_sha256 = Map.get(meta, "sha256", "")
 
-    with {:ok, size} <- get_firmware_size(fw_url),
+    with {:ok, size} <- get_firmware_size(http, fw_url),
          {:ok, handler_state} <- handler.handle_begin(size, meta),
-         _ = send_status(parent, "downloading"),
+         _ = send_status(server, "downloading"),
          {:ok, handler_state, hash_ctx} <-
-           stream_firmware(fw_url, size, handler, handler_state, parent),
-         :ok <- verify_sha256(hash_ctx, expected_sha256),
-         _ = send_status(parent, "updating"),
-         :ok <- handler.handle_finish(handler_state) do
-      send_status(parent, "fwup_complete")
+           stream_firmware(http, fw_url, size, handler, handler_state, server) do
+      finish_update(handler, handler_state, hash_ctx, expected_sha256, server)
     else
       {:error, reason, handler_state} ->
         IO.puts("NervesHubLinkAVM: update failed: #{inspect(reason)}")
         handler.handle_abort(handler_state)
-        send_status(parent, "update_failed")
+        send_status(server, "update_failed")
 
       {:error, reason} ->
         IO.puts("NervesHubLinkAVM: update failed: #{inspect(reason)}")
-        send_status(parent, "update_failed")
+        send_status(server, "update_failed")
+    end
+  end
+
+  defp finish_update(handler, handler_state, hash_ctx, expected_sha256, server) do
+    with :ok <- verify_sha256(hash_ctx, expected_sha256),
+         _ = send_status(server, "updating"),
+         :ok <- handler.handle_finish(handler_state) do
+      send_status(server, "fwup_complete")
+    else
+      {:error, reason} ->
+        IO.puts("NervesHubLinkAVM: update failed: #{inspect(reason)}")
+        handler.handle_abort(handler_state)
+        send_status(server, "update_failed")
     end
   end
 
@@ -319,25 +332,25 @@ defmodule NervesHubLinkAVM do
     if computed == expected, do: :ok, else: {:error, :sha256_mismatch}
   end
 
-  defp get_firmware_size(fw_url) do
-    case HTTPClient.get_content_length(fw_url) do
+  defp get_firmware_size(http, fw_url) do
+    case http.get_content_length(fw_url) do
       {:ok, size} -> {:ok, size}
       {:error, _} -> {:ok, 0}
     end
   end
 
-  defp stream_firmware(fw_url, total_size, handler, handler_state, parent) do
+  defp stream_firmware(http, fw_url, total_size, handler, handler_state, server) do
     init_acc = %{
       handler: handler,
       handler_state: handler_state,
       hash_ctx: :crypto.hash_init(:sha256),
       bytes_received: 0,
       total_size: total_size,
-      parent: parent,
+      server: server,
       last_progress: -1
     }
 
-    case HTTPClient.get_stream(fw_url, init_acc, &stream_chunk_callback/2) do
+    case http.get_stream(fw_url, init_acc, &stream_chunk_callback/2) do
       {:ok, %{handler_state: hs, hash_ctx: ctx}} -> {:ok, hs, ctx}
       {:error, reason} -> {:error, reason, handler_state}
     end
@@ -347,7 +360,7 @@ defmodule NervesHubLinkAVM do
     with {:ok, new_hs} <- acc.handler.handle_chunk(chunk, acc.handler_state) do
       bytes = acc.bytes_received + byte_size(chunk)
       progress = calc_progress(bytes, acc.total_size)
-      maybe_report_progress(acc.parent, progress, acc.last_progress)
+      maybe_report_progress(acc.server, progress, acc.last_progress)
 
       {:ok,
        %{
@@ -363,15 +376,15 @@ defmodule NervesHubLinkAVM do
   defp calc_progress(_bytes, 0), do: 0
   defp calc_progress(bytes, total), do: trunc(bytes / total * 100)
 
-  defp maybe_report_progress(_parent, progress, last) when progress <= last, do: :ok
-  defp maybe_report_progress(parent, progress, _last), do: send_progress(parent, progress)
+  defp maybe_report_progress(_server, progress, last) when progress <= last, do: :ok
+  defp maybe_report_progress(server, progress, _last), do: send_progress(server, progress)
 
-  defp send_progress(parent, value) do
-    GenServer.cast(parent, {:send_event, "fwup_progress", %{"value" => value}})
+  defp send_progress(server, value) do
+    GenServer.cast(server, {:send_event, "fwup_progress", %{"value" => value}})
   end
 
-  defp send_status(parent, status) do
-    GenServer.cast(parent, {:send_event, "status_update", %{"status" => status}})
+  defp send_status(server, status) do
+    GenServer.cast(server, {:send_event, "status_update", %{"status" => status}})
   end
 
   # -- Protocol helpers --
