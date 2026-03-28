@@ -278,10 +278,9 @@ connect_tcp(Host, Port) ->
 connect_ssl(Host, Port, ExtraSslOpts) ->
     ok = ssl:start(),
     HostStr = binary_to_list(Host),
-    {ok, IPv4} = inet:getaddr(HostStr, inet),
     DefaultOpts = [{verify, verify_none}, {active, false}, {binary, true}],
     MergedOpts = DefaultOpts ++ ExtraSslOpts,
-    case ssl:connect(IPv4, Port, MergedOpts, 10000) of
+    case ssl:connect(HostStr, Port, MergedOpts) of
         {ok, SslSocket} -> {ok, {ssl, SslSocket}};
         {error, _} = Err -> Err
     end.

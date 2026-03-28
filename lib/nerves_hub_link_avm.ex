@@ -479,7 +479,7 @@ defmodule NervesHubLinkAVM do
   end
 
   defp open_websocket(url, opts) do
-    {:ok, :websocket.new(String.to_charlist(url), opts)}
+    {:ok, :websocket.new(:erlang.binary_to_list(url), opts)}
   rescue
     e -> {:error, e}
   catch

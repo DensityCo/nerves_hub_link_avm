@@ -57,28 +57,33 @@ defmodule NervesHubLinkAVM.HTTPClient do
   @doc false
   def parse_url(url) when is_binary(url) do
     {scheme, rest} =
-      cond do
-        String.starts_with?(url, "https://") -> {:https, String.slice(url, 8..-1//1)}
-        String.starts_with?(url, "http://") -> {:http, String.slice(url, 7..-1//1)}
-        true -> {:https, url}
+      case url do
+        <<"https://", r::binary>> -> {:https, r}
+        <<"http://", r::binary>> -> {:http, r}
+        _ -> {:https, url}
       end
 
     {host_port, path} =
-      case String.split(rest, "/", parts: 2) do
+      case :binary.split(rest, <<"/">>) do
         [hp] -> {hp, "/"}
-        [hp, p] -> {hp, "/" <> p}
+        [hp, p] -> {hp, <<"/">>, p}
       end
+
+    path = case path do
+      {_, slash, p} -> <<slash::binary, p::binary>>
+      p -> p
+    end
 
     {host, port} =
-      case String.split(host_port, ":") do
+      case :binary.split(host_port, <<":">>) do
         [h] -> {h, if(scheme == :https, do: 443, else: 80)}
-        [h, p] -> {h, String.to_integer(p)}
+        [h, p] -> {h, :erlang.binary_to_integer(p)}
       end
 
-    {scheme, String.to_charlist(host), port, String.to_charlist(path)}
+    {scheme, :erlang.binary_to_list(host), port, :erlang.binary_to_list(path)}
   end
 
-  def parse_url(url) when is_list(url), do: parse_url(IO.iodata_to_binary(url))
+  def parse_url(url) when is_list(url), do: parse_url(:erlang.list_to_binary(url))
 
   # -- Connection options --
 
