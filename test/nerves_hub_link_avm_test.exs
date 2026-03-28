@@ -376,6 +376,98 @@ defmodule NervesHubLinkAVMTest do
     end
   end
 
+  describe "confirm_update while disconnected" do
+    test "sets firmware_validated but does not crash when ws_pid is nil" do
+      Process.register(self(), :test_proc)
+      {:ok, state} = NervesHubLinkAVM.init(default_opts())
+      assert_receive :connect
+      # ws_pid is nil, phase is :disconnected
+
+      {:reply, :ok, new_state} =
+        NervesHubLinkAVM.handle_call(:confirm_update, {self(), make_ref()}, state)
+
+      assert new_state.firmware_validated == true
+      assert_receive :confirm
+    end
+  end
+
+  describe "send_event while disconnected" do
+    test "send_event cast is dropped when ws_pid is nil" do
+      {:ok, state} = NervesHubLinkAVM.init(default_opts())
+      assert_receive :connect
+      # ws_pid is nil
+
+      {:noreply, ^state} =
+        NervesHubLinkAVM.handle_cast({:send_event, "status_update", %{"status" => "test"}}, state)
+    end
+
+    test "send_event cast works when connected" do
+      {:ok, state} = NervesHubLinkAVM.init(default_opts())
+      assert_receive :connect
+      state = %{state | ws_pid: self(), phase: :joined, join_ref: "join_0"}
+
+      {:noreply, _state} =
+        NervesHubLinkAVM.handle_cast({:send_event, "status_update", %{"status" => "test"}}, state)
+
+      assert_receive {:"$gen_cast", {:send, 1, _data}}
+    end
+  end
+
+  describe "disconnect clears extensions_join_ref" do
+    test "extensions_join_ref is nil after disconnect" do
+      {:ok, state} = NervesHubLinkAVM.init(default_opts())
+      assert_receive :connect
+      state = %{state | ws_pid: self(), phase: :joined, join_ref: "join_0", extensions_join_ref: "ext_0"}
+
+      {:noreply, new_state} =
+        NervesHubLinkAVM.handle_info({:websocket_close, self(), {true, 1000, "bye"}}, state)
+
+      assert new_state.extensions_join_ref == nil
+      assert new_state.phase == :disconnected
+    end
+  end
+
+  describe "update process monitoring" do
+    setup do
+      Process.register(self(), :test_proc)
+      {:ok, state} = NervesHubLinkAVM.init(default_opts())
+      assert_receive :connect
+      fake_ws = self()
+      state = %{state | ws_pid: fake_ws, phase: :joined, join_ref: "join_0"}
+      {:ok, state: state, ws: fake_ws}
+    end
+
+    test "phase returns to joined after update process exits", %{state: state, ws: ws} do
+      payload = %{
+        "update_available" => true,
+        "firmware_url" => "https://example.com/fw.bin",
+        "firmware_meta" => %{}
+      }
+
+      msg = Channel.encode_message("join_0", "ref_1", "device", "update", payload)
+      {:noreply, new_state} = NervesHubLinkAVM.handle_info({:websocket, ws, IO.iodata_to_binary(msg)}, state)
+      assert new_state.phase == :updating
+
+      # The spawned process will crash (ahttp_client not available) and send DOWN
+      assert_receive {:DOWN, _ref, :process, _pid, _reason}, 1000
+
+      # Simulate the DOWN message reaching the GenServer
+      {:noreply, final_state} =
+        NervesHubLinkAVM.handle_info({:DOWN, make_ref(), :process, self(), :normal}, new_state)
+
+      assert final_state.phase == :joined
+    end
+
+    test "DOWN in non-updating phase is ignored" do
+      {:ok, state} = NervesHubLinkAVM.init(default_opts())
+      assert_receive :connect
+      state = %{state | phase: :joined}
+
+      {:noreply, ^state} =
+        NervesHubLinkAVM.handle_info({:DOWN, make_ref(), :process, self(), :normal}, state)
+    end
+  end
+
   defmodule MockHealthProvider do
     @behaviour NervesHubLinkAVM.HealthProvider
 

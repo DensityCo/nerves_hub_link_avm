@@ -104,7 +104,7 @@ defmodule NervesHubLinkAVM do
   @impl true
   def handle_call(:confirm_update, _from, %State{device_handler: handler} = state) do
     with :ok <- do_confirm(handler) do
-      send_channel_message(state, "firmware_validated", %{})
+      if state.phase == :joined, do: send_channel_message(state, "firmware_validated", %{})
       {:reply, :ok, %{state | firmware_validated: true}}
     else
       error -> {:reply, error, state}
@@ -122,6 +122,10 @@ defmodule NervesHubLinkAVM do
     state = disconnect(state)
     send(self(), :connect)
     {:noreply, %{state | backoff: @initial_backoff}}
+  end
+
+  def handle_cast({:send_event, _event, _payload}, %State{ws_pid: nil} = state) do
+    {:noreply, state}
   end
 
   def handle_cast({:send_event, event, payload}, state) do
@@ -170,6 +174,10 @@ defmodule NervesHubLinkAVM do
     {:noreply, schedule_reconnect(state)}
   end
 
+  def handle_info({:DOWN, _ref, :process, _pid, _reason}, %State{phase: :updating} = state) do
+    {:noreply, %{state | phase: :joined}}
+  end
+
   def handle_info(:heartbeat, %State{phase: :joined} = state) do
     state = send_heartbeat(state)
     ref = Process.send_after(self(), :heartbeat, @heartbeat_interval)
@@ -205,7 +213,7 @@ defmodule NervesHubLinkAVM do
     send_channel_message(state, "status_update", %{"status" => "received"})
     server = self()
     state = %{state | phase: :updating}
-    spawn_link(fn -> do_update(fw_url, meta, state, server) end)
+    spawn(fn -> do_update(fw_url, meta, state, server) end) |> Process.monitor()
     {:noreply, state}
   end
 
@@ -484,7 +492,7 @@ defmodule NervesHubLinkAVM do
   defp disconnect(state) do
     cancel_timer(state.heartbeat_ref)
     cancel_timer(state.reconnect_ref)
-    %{state | phase: :disconnected, heartbeat_ref: nil, reconnect_ref: nil, ws_pid: nil}
+    %{state | phase: :disconnected, heartbeat_ref: nil, reconnect_ref: nil, ws_pid: nil, extensions_join_ref: nil}
   end
 
   defp cancel_timer(nil), do: :ok
