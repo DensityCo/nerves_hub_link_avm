@@ -17,5 +17,8 @@ defmodule NervesHubLinkAVM.UpdateHandler do
   @doc "Called on any error — clean up partial write."
   @callback handle_abort(state :: term()) :: :ok
 
-  @optional_callbacks [handle_confirm: 0]
+  @doc "Called when the server requests device identification (e.g., blink an LED)."
+  @callback handle_identify() :: :ok
+
+  @optional_callbacks [handle_confirm: 0, handle_identify: 0]
 end

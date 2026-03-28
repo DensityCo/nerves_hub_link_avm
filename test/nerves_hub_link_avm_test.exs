@@ -34,6 +34,12 @@ defmodule NervesHubLinkAVMTest do
       send(:test_proc, {:abort, state})
       :ok
     end
+
+    @impl true
+    def handle_identify do
+      send(:test_proc, :identify)
+      :ok
+    end
   end
 
   defp default_opts do
@@ -181,6 +187,15 @@ defmodule NervesHubLinkAVMTest do
         NervesHubLinkAVM.handle_info({:websocket, ws, IO.iodata_to_binary(msg)}, state)
 
       assert new_state.phase == :disconnected
+    end
+
+    test "identify calls handler's handle_identify", %{state: state, ws: ws} do
+      msg = Channel.encode_message("join_0", "ref_1", "device", "identify", %{})
+
+      {:noreply, ^state} =
+        NervesHubLinkAVM.handle_info({:websocket, ws, IO.iodata_to_binary(msg)}, state)
+
+      assert_receive :identify
     end
 
     test "unknown channel message is handled gracefully", %{state: state, ws: ws} do

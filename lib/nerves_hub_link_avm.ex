@@ -200,6 +200,16 @@ defmodule NervesHubLinkAVM do
     {:noreply, state}
   end
 
+  defp handle_channel_message({_join_ref, _ref, "device", "identify", _payload}, state) do
+    IO.puts("NervesHubLinkAVM: identify requested")
+
+    if function_exported?(state.update_handler, :handle_identify, 0) do
+      state.update_handler.handle_identify()
+    end
+
+    {:noreply, state}
+  end
+
   defp handle_channel_message({_join_ref, _ref, _topic, "phx_error", payload}, state) do
     IO.puts("NervesHubLinkAVM: channel error: #{inspect(payload)}")
     state = disconnect(state)
