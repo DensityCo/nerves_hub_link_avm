@@ -48,11 +48,11 @@ defmodule NervesHubLinkAVMTest do
       device_cert: "fake_cert",
       device_key: "fake_key",
       firmware_meta: %{
-        "nerves_fw_uuid" => "test-uuid",
-        "nerves_fw_product" => "test-product",
-        "nerves_fw_architecture" => "generic",
-        "nerves_fw_version" => "1.0.0",
-        "nerves_fw_platform" => "host"
+        "uuid" => "test-uuid",
+        "product" => "test-product",
+        "architecture" => "generic",
+        "version" => "1.0.0",
+        "platform" => "host"
       },
       device_handler: MockHandler
     ]
@@ -68,8 +68,8 @@ defmodule NervesHubLinkAVMTest do
       assert state.ssl == true
       assert state.device_cert == "fake_cert"
       assert state.device_key == "fake_key"
-      assert state.firmware_meta["nerves_fw_uuid"] == "test-uuid"
-      assert state.firmware_meta["nerves_fw_platform"] == "host"
+      assert state.firmware_meta["uuid"] == "test-uuid"
+      assert state.firmware_meta["platform"] == "host"
       assert state.device_handler == MockHandler
       assert state.msg_ref == 0
       assert state.phase == :disconnected
@@ -101,7 +101,7 @@ defmodule NervesHubLinkAVMTest do
     end
 
     test "raises on missing required firmware_meta keys" do
-      opts = Keyword.put(default_opts(), :firmware_meta, %{"nerves_fw_uuid" => "x"})
+      opts = Keyword.put(default_opts(), :firmware_meta, %{"uuid" => "x"})
 
       assert_raise ArgumentError, ~r/missing required firmware metadata/, fn ->
         NervesHubLinkAVM.init(opts)

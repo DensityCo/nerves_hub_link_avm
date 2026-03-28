@@ -11,11 +11,11 @@ defmodule NervesHubLinkAVM do
   @max_backoff 30_000
   @device_api_version "2.0.0"
   @required_firmware_meta_keys [
-    "nerves_fw_uuid",
-    "nerves_fw_product",
-    "nerves_fw_architecture",
-    "nerves_fw_version",
-    "nerves_fw_platform"
+    "uuid",
+    "product",
+    "architecture",
+    "version",
+    "platform"
   ]
 
   # -- Public API --
