@@ -82,26 +82,28 @@ Create a module that implements the `NervesHubLinkAVM.DeviceHandler` behaviour:
 defmodule MyApp.DeviceHandler do
   @behaviour NervesHubLinkAVM.DeviceHandler
 
+  # Firmware update callbacks (fwup_*)
+
   @impl true
-  def handle_begin(size, meta) do
+  def fwup_begin(size, meta) do
     # Called before streaming. Initialize state for the update.
     {:ok, %{size: size, meta: meta}}
   end
 
   @impl true
-  def handle_chunk(data, state) do
+  def fwup_chunk(data, state) do
     # Called for each downloaded chunk. Write to flash, etc.
     {:ok, state}
   end
 
   @impl true
-  def handle_finish(state) do
+  def fwup_finish(state) do
     # Called after SHA256 verification passes. Activate firmware slot, reboot.
     :ok
   end
 
   @impl true
-  def handle_abort(state) do
+  def fwup_abort(state) do
     # Called on error or SHA256 mismatch. Clean up partial writes.
     :ok
   end
@@ -109,7 +111,7 @@ defmodule MyApp.DeviceHandler do
   # Optional callbacks:
 
   @impl true
-  def handle_confirm do
+  def fwup_confirm do
     # Called via confirm_update/0. Commit firmware on first boot.
     :ok
   end
@@ -128,13 +130,13 @@ end
 When the server pushes a firmware update, the client:
 
 1. Reports `"received"` status to the server
-2. Calls `handle_begin/2` with the firmware size and metadata
-3. Reports `"downloading"` and streams chunks through `handle_chunk/2`
+2. Calls `fwup_begin/2` with the firmware size and metadata
+3. Reports `"downloading"` and streams chunks through `fwup_chunk/2`
 4. Verifies SHA256 hash of the downloaded firmware
-5. Reports `"updating"` and calls `handle_finish/1`
+5. Reports `"updating"` and calls `fwup_finish/1`
 6. Reports `"fwup_complete"` on success
 
-If SHA256 verification fails or any step errors, `handle_abort/1` is called and `"update_failed"` is reported.
+If SHA256 verification fails or any step errors, `fwup_abort/1` is called and `"update_failed"` is reported.
 
 ### Channel messages handled
 

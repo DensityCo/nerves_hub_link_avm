@@ -112,8 +112,8 @@ defmodule NervesHubLinkAVM do
   end
 
   defp do_confirm(handler) do
-    if function_exported?(handler, :handle_confirm, 0),
-      do: handler.handle_confirm(),
+    if function_exported?(handler, :fwup_confirm, 0),
+      do: handler.fwup_confirm(),
       else: :ok
   end
 
@@ -301,7 +301,7 @@ defmodule NervesHubLinkAVM do
     expected_sha256 = Map.get(meta, "sha256", "")
 
     with {:ok, size} <- get_firmware_size(http, fw_url),
-         {:ok, handler_state} <- handler.handle_begin(size, meta),
+         {:ok, handler_state} <- handler.fwup_begin(size, meta),
          _ = send_status(server, "downloading"),
          {:ok, handler_state, hash_ctx} <-
            stream_firmware(http, fw_url, size, handler, handler_state, server) do
@@ -309,7 +309,7 @@ defmodule NervesHubLinkAVM do
     else
       {:error, reason, handler_state} ->
         IO.puts("NervesHubLinkAVM: update failed: #{inspect(reason)}")
-        handler.handle_abort(handler_state)
+        handler.fwup_abort(handler_state)
         send_status(server, "update_failed")
 
       {:error, reason} ->
@@ -321,12 +321,12 @@ defmodule NervesHubLinkAVM do
   defp finish_update(handler, handler_state, hash_ctx, expected_sha256, server) do
     with :ok <- verify_sha256(hash_ctx, expected_sha256),
          _ = send_status(server, "updating"),
-         :ok <- handler.handle_finish(handler_state) do
+         :ok <- handler.fwup_finish(handler_state) do
       send_status(server, "fwup_complete")
     else
       {:error, reason} ->
         IO.puts("NervesHubLinkAVM: update failed: #{inspect(reason)}")
-        handler.handle_abort(handler_state)
+        handler.fwup_abort(handler_state)
         send_status(server, "update_failed")
     end
   end
@@ -366,7 +366,7 @@ defmodule NervesHubLinkAVM do
   end
 
   defp stream_chunk_callback(chunk, acc) do
-    with {:ok, new_hs} <- acc.handler.handle_chunk(chunk, acc.handler_state) do
+    with {:ok, new_hs} <- acc.handler.fwup_chunk(chunk, acc.handler_state) do
       bytes = acc.bytes_received + byte_size(chunk)
       progress = calc_progress(bytes, acc.total_size)
       maybe_report_progress(acc.server, progress, acc.last_progress)

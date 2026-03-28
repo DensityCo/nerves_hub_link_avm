@@ -75,19 +75,19 @@ defmodule NervesHubLinkAVM.UpdateLifecycleTest do
   defmodule TestHandler do
     @behaviour NervesHubLinkAVM.DeviceHandler
 
-    def handle_begin(size, meta) do
+    def fwup_begin(size, meta) do
       send(:lifecycle_test, {:begin, size, meta})
       {:ok, %{chunks: []}}
     end
 
-    def handle_chunk(data, state), do: {:ok, %{state | chunks: state.chunks ++ [data]}}
+    def fwup_chunk(data, state), do: {:ok, %{state | chunks: state.chunks ++ [data]}}
 
-    def handle_finish(state) do
+    def fwup_finish(state) do
       send(:lifecycle_test, {:finish, state})
       :ok
     end
 
-    def handle_abort(state) do
+    def fwup_abort(state) do
       send(:lifecycle_test, {:abort, state})
       :ok
     end
@@ -96,10 +96,10 @@ defmodule NervesHubLinkAVM.UpdateLifecycleTest do
   defmodule FailBeginHandler do
     @behaviour NervesHubLinkAVM.DeviceHandler
 
-    def handle_begin(_, _), do: {:error, :no_space}
-    def handle_chunk(_, s), do: {:ok, s}
-    def handle_finish(_), do: :ok
-    def handle_abort(_), do: :ok
+    def fwup_begin(_, _), do: {:error, :no_space}
+    def fwup_chunk(_, s), do: {:ok, s}
+    def fwup_finish(_), do: :ok
+    def fwup_abort(_), do: :ok
   end
 
   # -- Helpers --

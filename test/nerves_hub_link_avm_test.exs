@@ -7,30 +7,30 @@ defmodule NervesHubLinkAVMTest do
     @behaviour NervesHubLinkAVM.DeviceHandler
 
     @impl true
-    def handle_begin(size, meta) do
+    def fwup_begin(size, meta) do
       send(:test_proc, {:begin, size, meta})
       {:ok, %{chunks: []}}
     end
 
     @impl true
-    def handle_chunk(data, state) do
+    def fwup_chunk(data, state) do
       {:ok, %{state | chunks: state.chunks ++ [data]}}
     end
 
     @impl true
-    def handle_finish(_state) do
+    def fwup_finish(_state) do
       send(:test_proc, :finish)
       :ok
     end
 
     @impl true
-    def handle_confirm do
+    def fwup_confirm do
       send(:test_proc, :confirm)
       :ok
     end
 
     @impl true
-    def handle_abort(state) do
+    def fwup_abort(state) do
       send(:test_proc, {:abort, state})
       :ok
     end
@@ -250,11 +250,11 @@ defmodule NervesHubLinkAVMTest do
     test "does not set firmware_validated on handler error" do
       defmodule FailConfirmHandler do
         @behaviour NervesHubLinkAVM.DeviceHandler
-        def handle_begin(_, _), do: {:ok, %{}}
-        def handle_chunk(_, s), do: {:ok, s}
-        def handle_finish(_), do: :ok
-        def handle_confirm, do: {:error, :nope}
-        def handle_abort(_), do: :ok
+        def fwup_begin(_, _), do: {:ok, %{}}
+        def fwup_chunk(_, s), do: {:ok, s}
+        def fwup_finish(_), do: :ok
+        def fwup_confirm, do: {:error, :nope}
+        def fwup_abort(_), do: :ok
       end
 
       opts = Keyword.put(default_opts(), :device_handler, FailConfirmHandler)
