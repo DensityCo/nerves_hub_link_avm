@@ -47,8 +47,7 @@ defmodule NervesHubLinkAVM do
       :host,
       :port,
       :ssl,
-      :device_cert,
-      :device_key,
+      :auth,
       :firmware_meta,
       :device_handler,
       :ws_pid,
@@ -71,8 +70,7 @@ defmodule NervesHubLinkAVM do
       host: Keyword.fetch!(opts, :host),
       port: Keyword.get(opts, :port, 443),
       ssl: Keyword.get(opts, :ssl, true),
-      device_cert: Keyword.fetch!(opts, :device_cert),
-      device_key: Keyword.fetch!(opts, :device_key),
+      auth: build_auth(opts),
       firmware_meta: firmware_meta,
       device_handler: Keyword.fetch!(opts, :device_handler),
       msg_ref: 0,
@@ -81,6 +79,21 @@ defmodule NervesHubLinkAVM do
 
     send(self(), :connect)
     {:ok, state}
+  end
+
+  defp build_auth(opts) do
+    cond do
+      Keyword.has_key?(opts, :device_cert) ->
+        {:certificate, Keyword.fetch!(opts, :device_cert), Keyword.fetch!(opts, :device_key)}
+
+      Keyword.has_key?(opts, :product_key) ->
+        {:shared_secret, Keyword.fetch!(opts, :product_key),
+         Keyword.fetch!(opts, :product_secret), Keyword.fetch!(opts, :identifier)}
+
+      true ->
+        raise ArgumentError,
+          "must provide either :device_cert/:device_key (mTLS) or :product_key/:product_secret/:identifier (shared secret)"
+    end
   end
 
   @impl true
@@ -326,17 +339,26 @@ defmodule NervesHubLinkAVM do
     "#{scheme}://#{host}:#{port}/socket/websocket?vsn=2.0.0"
   end
 
-  defp build_ws_opts(%State{ssl: false}), do: []
+  defp build_ws_opts(%State{ssl: ssl, auth: auth}) do
+    ssl_opts = build_ssl_opts(ssl, auth)
+    extra_headers = build_auth_headers(auth)
 
-  defp build_ws_opts(%State{ssl: true, device_cert: cert, device_key: key}) do
-    [
-      ssl_opts: [
-        {:certfile, to_charlist(cert)},
-        {:keyfile, to_charlist(key)},
-        {:versions, [:"tlsv1.2"]}
-      ]
-    ]
+    opts = []
+    opts = if ssl_opts != [], do: [{:ssl_opts, ssl_opts} | opts], else: opts
+    opts = if extra_headers != [], do: [{:extra_headers, extra_headers} | opts], else: opts
+    opts
   end
+
+  defp build_ssl_opts(false, _auth), do: []
+  defp build_ssl_opts(true, {:certificate, cert, key}) do
+    [{:certfile, to_charlist(cert)}, {:keyfile, to_charlist(key)}, {:versions, [:"tlsv1.2"]}]
+  end
+  defp build_ssl_opts(true, _auth), do: [{:versions, [:"tlsv1.2"]}]
+
+  defp build_auth_headers({:shared_secret, key, secret, identifier}) do
+    NervesHubLinkAVM.SharedSecret.build_headers(key, secret, identifier)
+  end
+  defp build_auth_headers(_auth), do: []
 
   defp send_join(state) do
     {ref, state} = next_ref(state)

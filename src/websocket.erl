@@ -243,19 +243,25 @@ websocket_open(URL, Opts) ->
             {Host0, DefaultPort}
     end,
     SslOpts = proplists:get_value(ssl_opts, Opts, []),
+    ExtraHeaders = proplists:get_value(extra_headers, Opts, []),
     Transport = case Scheme of
         ws -> connect_tcp(Host, Port);
         wss -> connect_ssl(Host, Port, SslOpts)
     end,
     {ok, Sock} = Transport,
     Key = base64:encode(crypto:strong_rand_bytes(16)),
+    HeaderLines = lists:map(fun({Name, Value}) ->
+        [Name, <<": ">>, Value, <<"\r\n">>]
+    end, ExtraHeaders),
     Request = [
         <<"GET /">>, Path, <<" HTTP/1.1\r\n">>,
         <<"Host: ">>, Host, <<"\r\n">>,
         <<"Upgrade: websocket\r\n">>,
         <<"Connection: Upgrade\r\n">>,
         <<"Sec-WebSocket-Key: ">>, Key, <<"\r\n">>,
-        <<"Sec-WebSocket-Version: 13\r\n\r\n">>
+        <<"Sec-WebSocket-Version: 13\r\n">>,
+        HeaderLines,
+        <<"\r\n">>
     ],
     ok = transport_send(Sock, Request),
     ReplyToken = compute_socket_accept(Key),

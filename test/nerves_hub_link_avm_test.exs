@@ -66,8 +66,7 @@ defmodule NervesHubLinkAVMTest do
       assert state.host == "hub.example.com"
       assert state.port == 443
       assert state.ssl == true
-      assert state.device_cert == "fake_cert"
-      assert state.device_key == "fake_key"
+      assert state.auth == {:certificate, "fake_cert", "fake_key"}
       assert state.firmware_meta["uuid"] == "test-uuid"
       assert state.firmware_meta["platform"] == "host"
       assert state.device_handler == MockHandler
@@ -313,18 +312,54 @@ defmodule NervesHubLinkAVMTest do
       {:ok, state} = NervesHubLinkAVM.init(default_opts())
       assert_receive :connect
 
-      # Access private function via handle_info :connect which calls build_ws_opts
-      # Instead, test indirectly: ssl: true with cert/key should attempt wss connection
       assert state.ssl == true
-      assert state.device_cert == "fake_cert"
-      assert state.device_key == "fake_key"
+      assert state.auth == {:certificate, "fake_cert", "fake_key"}
     end
 
-    test "ssl false does not require cert/key for connection" do
+    test "ssl false with cert auth" do
       opts = Keyword.merge(default_opts(), ssl: false)
       {:ok, state} = NervesHubLinkAVM.init(opts)
       assert_receive :connect
       assert state.ssl == false
+    end
+
+    test "shared secret auth stores auth tuple" do
+      opts = [
+        host: "hub.example.com",
+        product_key: "nhp_test123",
+        product_secret: "secret456",
+        identifier: "device-001",
+        firmware_meta: %{
+          "uuid" => "test-uuid",
+          "product" => "test-product",
+          "architecture" => "generic",
+          "version" => "1.0.0",
+          "platform" => "host"
+        },
+        device_handler: MockHandler
+      ]
+
+      {:ok, state} = NervesHubLinkAVM.init(opts)
+      assert_receive :connect
+      assert {:shared_secret, "nhp_test123", "secret456", "device-001"} = state.auth
+    end
+
+    test "raises when no auth method provided" do
+      opts = [
+        host: "hub.example.com",
+        firmware_meta: %{
+          "uuid" => "test-uuid",
+          "product" => "test-product",
+          "architecture" => "generic",
+          "version" => "1.0.0",
+          "platform" => "host"
+        },
+        device_handler: MockHandler
+      ]
+
+      assert_raise ArgumentError, ~r/must provide either/, fn ->
+        NervesHubLinkAVM.init(opts)
+      end
     end
   end
 
