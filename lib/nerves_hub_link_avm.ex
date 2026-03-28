@@ -124,10 +124,12 @@ defmodule NervesHubLinkAVM do
     {:noreply, %{state | backoff: @initial_backoff}}
   end
 
+  @impl true
   def handle_cast({:send_event, _event, _payload}, %State{ws_pid: nil} = state) do
     {:noreply, state}
   end
 
+  @impl true
   def handle_cast({:send_event, event, payload}, state) do
     send_channel_message(state, event, payload)
     {:noreply, state}
@@ -269,8 +271,7 @@ defmodule NervesHubLinkAVM do
 
       provider ->
         metrics = provider.health_check()
-        timestamp = DateTime.utc_now() |> DateTime.to_iso8601()
-        payload = %{"value" => %{"metrics" => metrics, "timestamp" => timestamp}}
+        payload = %{"value" => %{"metrics" => metrics, "timestamp" => iso8601_now()}}
         send_extensions_message(state, "health:report", payload)
         {:noreply, state}
     end
@@ -403,13 +404,11 @@ defmodule NervesHubLinkAVM do
   end
 
   defp build_ws_opts(%State{ssl: ssl, auth: auth}) do
-    ssl_opts = build_ssl_opts(ssl, auth)
-    extra_headers = build_auth_headers(auth)
-
-    opts = []
-    opts = if ssl_opts != [], do: [{:ssl_opts, ssl_opts} | opts], else: opts
-    opts = if extra_headers != [], do: [{:extra_headers, extra_headers} | opts], else: opts
-    opts
+    [
+      ssl_opts: build_ssl_opts(ssl, auth),
+      extra_headers: build_auth_headers(auth)
+    ]
+    |> Enum.reject(fn {_k, v} -> v == [] end)
   end
 
   defp build_ssl_opts(false, _auth), do: []
@@ -504,6 +503,14 @@ defmodule NervesHubLinkAVM do
     ref = Process.send_after(self(), :connect, backoff)
     new_backoff = min(backoff * 2, @max_backoff)
     %{state | phase: :disconnected, reconnect_ref: ref, backoff: new_backoff}
+  end
+
+  defp iso8601_now do
+    seconds = :erlang.system_time(:second)
+    {{y, mo, d}, {h, mi, s}} = :calendar.system_time_to_universal_time(seconds, :second)
+
+    :io_lib.format("~4..0B-~2..0B-~2..0BT~2..0B:~2..0B:~2..0BZ", [y, mo, d, h, mi, s])
+    |> IO.iodata_to_binary()
   end
 
   defp validate_firmware_meta!(meta) do
