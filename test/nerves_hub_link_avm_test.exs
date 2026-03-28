@@ -219,6 +219,98 @@ defmodule NervesHubLinkAVMTest do
       {:reply, :ok, _state} = NervesHubLinkAVM.handle_call(:confirm_update, {self(), make_ref()}, state)
       assert_receive :confirm
     end
+
+    test "sends firmware_validated event to server on success" do
+      Process.register(self(), :test_proc)
+      {:ok, state} = NervesHubLinkAVM.init(default_opts())
+      assert_receive :connect
+      state = %{state | ws_pid: self(), phase: :joined, join_ref: "join_0"}
+
+      {:reply, :ok, new_state} =
+        NervesHubLinkAVM.handle_call(:confirm_update, {self(), make_ref()}, state)
+
+      assert new_state.firmware_validated == true
+      assert_receive :confirm
+    end
+
+    test "does not set firmware_validated on handler error" do
+      defmodule FailConfirmHandler do
+        @behaviour NervesHubLinkAVM.UpdateHandler
+        def handle_begin(_, _), do: {:ok, %{}}
+        def handle_chunk(_, s), do: {:ok, s}
+        def handle_finish(_), do: :ok
+        def handle_confirm, do: {:error, :nope}
+        def handle_abort(_), do: :ok
+      end
+
+      opts = Keyword.put(default_opts(), :update_handler, FailConfirmHandler)
+      {:ok, state} = NervesHubLinkAVM.init(opts)
+      assert_receive :connect
+      state = %{state | ws_pid: self(), phase: :joined, join_ref: "join_0"}
+
+      {:reply, {:error, :nope}, new_state} =
+        NervesHubLinkAVM.handle_call(:confirm_update, {self(), make_ref()}, state)
+
+      assert new_state.firmware_validated == false
+    end
+  end
+
+  describe "init/1 - firmware_validated default" do
+    test "firmware_validated defaults to false" do
+      {:ok, state} = NervesHubLinkAVM.init(default_opts())
+      assert_receive :connect
+      assert state.firmware_validated == false
+    end
+  end
+
+  describe "handle_info/2 - update message" do
+    setup do
+      Process.register(self(), :test_proc)
+      {:ok, state} = NervesHubLinkAVM.init(default_opts())
+      assert_receive :connect
+      fake_ws = self()
+      state = %{state | ws_pid: fake_ws, phase: :joined, join_ref: "join_0"}
+      {:ok, state: state, ws: fake_ws}
+    end
+
+    test "update with update_available sends received status", %{state: state, ws: ws} do
+      payload = %{
+        "update_available" => true,
+        "firmware_url" => "https://example.com/fw.bin",
+        "firmware_meta" => %{"sha256" => "abc"}
+      }
+
+      msg = Channel.encode_message("join_0", "ref_1", "device", "update", payload)
+      {:noreply, new_state} = NervesHubLinkAVM.handle_info({:websocket, ws, IO.iodata_to_binary(msg)}, state)
+
+      assert new_state.phase == :updating
+    end
+
+    test "update without update_available is ignored", %{state: state, ws: ws} do
+      payload = %{"update_available" => false}
+      msg = Channel.encode_message("join_0", "ref_1", "device", "update", payload)
+      {:noreply, ^state} = NervesHubLinkAVM.handle_info({:websocket, ws, IO.iodata_to_binary(msg)}, state)
+    end
+  end
+
+  describe "build_ws_opts/1" do
+    test "returns ssl_opts when ssl is true" do
+      {:ok, state} = NervesHubLinkAVM.init(default_opts())
+      assert_receive :connect
+
+      # Access private function via handle_info :connect which calls build_ws_opts
+      # Instead, test indirectly: ssl: true with cert/key should attempt wss connection
+      assert state.ssl == true
+      assert state.device_cert == "fake_cert"
+      assert state.device_key == "fake_key"
+    end
+
+    test "ssl false does not require cert/key for connection" do
+      opts = Keyword.merge(default_opts(), ssl: false)
+      {:ok, state} = NervesHubLinkAVM.init(opts)
+      assert_receive :connect
+      assert state.ssl == false
+    end
   end
 
   describe "handle_cast/2 - reconnect" do

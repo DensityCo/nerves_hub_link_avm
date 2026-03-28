@@ -21,15 +21,16 @@ defmodule NervesHubLinkAVM do
   # -- Public API --
 
   def start_link(opts) do
-    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+    name = Keyword.get(opts, :name, __MODULE__)
+    GenServer.start_link(__MODULE__, opts, name: name)
   end
 
-  def reconnect do
-    GenServer.cast(__MODULE__, :reconnect)
+  def reconnect(server \\ __MODULE__) do
+    GenServer.cast(server, :reconnect)
   end
 
-  def confirm_update do
-    GenServer.call(__MODULE__, :confirm_update)
+  def confirm_update(server \\ __MODULE__) do
+    GenServer.call(server, :confirm_update)
   end
 
   # AtomVM entry point
@@ -56,7 +57,8 @@ defmodule NervesHubLinkAVM do
       :join_ref,
       :msg_ref,
       phase: :disconnected,
-      backoff: 1_000
+      backoff: 1_000,
+      firmware_validated: false
     ]
   end
 
@@ -83,14 +85,18 @@ defmodule NervesHubLinkAVM do
 
   @impl true
   def handle_call(:confirm_update, _from, %State{update_handler: handler} = state) do
-    result =
-      if function_exported?(handler, :handle_confirm, 0) do
-        handler.handle_confirm()
-      else
-        :ok
-      end
+    with :ok <- do_confirm(handler) do
+      send_channel_message(state, "firmware_validated", %{})
+      {:reply, :ok, %{state | firmware_validated: true}}
+    else
+      error -> {:reply, error, state}
+    end
+  end
 
-    {:reply, result, state}
+  defp do_confirm(handler) do
+    if function_exported?(handler, :handle_confirm, 0),
+      do: handler.handle_confirm(),
+      else: :ok
   end
 
   @impl true
@@ -112,16 +118,12 @@ defmodule NervesHubLinkAVM do
 
     IO.puts("NervesHubLinkAVM: connecting to #{url}")
 
-    try do
-      ws = :websocket.new(String.to_charlist(url))
-      {:noreply, %{state | ws_pid: ws}}
-    rescue
-      e ->
-        IO.puts("NervesHubLinkAVM: connection failed: #{inspect(e)}")
-        {:noreply, schedule_reconnect(state)}
-    catch
-      kind, reason ->
-        IO.puts("NervesHubLinkAVM: connection failed: #{inspect(kind)} #{inspect(reason)}")
+    case open_websocket(url, build_ws_opts(state)) do
+      {:ok, ws} ->
+        {:noreply, %{state | ws_pid: ws}}
+
+      {:error, reason} ->
+        IO.puts("NervesHubLinkAVM: connection failed: #{inspect(reason)}")
         {:noreply, schedule_reconnect(state)}
     end
   end
@@ -175,18 +177,21 @@ defmodule NervesHubLinkAVM do
     {:noreply, %{state | phase: :joined, heartbeat_ref: ref}}
   end
 
-  defp handle_channel_message({_join_ref, _ref, "device", "update", payload}, state) do
-    case payload do
-      %{"update_available" => true, "firmware_url" => fw_url} ->
-        meta = Map.get(payload, "firmware_meta", %{})
-        IO.puts("NervesHubLinkAVM: update available")
-        state = %{state | phase: :updating}
-        spawn_link(fn -> do_update(fw_url, meta, state) end)
-        {:noreply, state}
+  defp handle_channel_message(
+         {_join_ref, _ref, "device", "update",
+          %{"update_available" => true, "firmware_url" => fw_url} = payload},
+         state
+       ) do
+    meta = Map.get(payload, "firmware_meta", %{})
+    IO.puts("NervesHubLinkAVM: update available")
+    send_channel_message(state, "status_update", %{"status" => "received"})
+    state = %{state | phase: :updating}
+    spawn_link(fn -> do_update(fw_url, meta, state) end)
+    {:noreply, state}
+  end
 
-      _ ->
-        {:noreply, state}
-    end
+  defp handle_channel_message({_join_ref, _ref, "device", "update", _payload}, state) do
+    {:noreply, state}
   end
 
   defp handle_channel_message({_join_ref, _ref, "device", "reboot", _payload}, state) do
@@ -220,11 +225,13 @@ defmodule NervesHubLinkAVM do
 
     with {:ok, size} <- get_firmware_size(fw_url),
          {:ok, handler_state} <- handler.handle_begin(size, meta),
+         _ = send_status(parent, "downloading"),
          {:ok, handler_state, hash_ctx} <-
            stream_firmware(fw_url, size, handler, handler_state, parent),
          :ok <- verify_sha256(hash_ctx, expected_sha256),
+         _ = send_status(parent, "updating"),
          :ok <- handler.handle_finish(handler_state) do
-      IO.puts("NervesHubLinkAVM: update complete")
+      send_status(parent, "fwup_complete")
     else
       {:error, reason, handler_state} ->
         IO.puts("NervesHubLinkAVM: update failed: #{inspect(reason)}")
@@ -272,35 +279,27 @@ defmodule NervesHubLinkAVM do
   end
 
   defp stream_chunk_callback(chunk, acc) do
-    case acc.handler.handle_chunk(chunk, acc.handler_state) do
-      {:ok, new_hs} ->
-        bytes = acc.bytes_received + byte_size(chunk)
-        new_ctx = :crypto.hash_update(acc.hash_ctx, chunk)
+    with {:ok, new_hs} <- acc.handler.handle_chunk(chunk, acc.handler_state) do
+      bytes = acc.bytes_received + byte_size(chunk)
+      progress = calc_progress(bytes, acc.total_size)
+      maybe_report_progress(acc.parent, progress, acc.last_progress)
 
-        progress =
-          if acc.total_size > 0 do
-            trunc(bytes / acc.total_size * 100)
-          else
-            0
-          end
-
-        if progress > acc.last_progress do
-          send_progress(acc.parent, progress)
-        end
-
-        {:ok,
-         %{
-           acc
-           | handler_state: new_hs,
-             hash_ctx: new_ctx,
-             bytes_received: bytes,
-             last_progress: progress
-         }}
-
-      {:error, reason} ->
-        {:error, reason}
+      {:ok,
+       %{
+         acc
+         | handler_state: new_hs,
+           hash_ctx: :crypto.hash_update(acc.hash_ctx, chunk),
+           bytes_received: bytes,
+           last_progress: max(progress, acc.last_progress)
+       }}
     end
   end
+
+  defp calc_progress(_bytes, 0), do: 0
+  defp calc_progress(bytes, total), do: trunc(bytes / total * 100)
+
+  defp maybe_report_progress(_parent, progress, last) when progress <= last, do: :ok
+  defp maybe_report_progress(parent, progress, _last), do: send_progress(parent, progress)
 
   defp send_progress(parent, value) do
     GenServer.cast(parent, {:send_event, "fwup_progress", %{"value" => value}})
@@ -317,10 +316,32 @@ defmodule NervesHubLinkAVM do
     "#{scheme}://#{host}:#{port}/socket/websocket?vsn=2.0.0"
   end
 
+  defp build_ws_opts(%State{ssl: false}), do: []
+
+  defp build_ws_opts(%State{ssl: true, device_cert: cert, device_key: key}) do
+    [
+      ssl_opts: [
+        {:certfile, to_charlist(cert)},
+        {:keyfile, to_charlist(key)},
+        {:versions, [:"tlsv1.2"]}
+      ]
+    ]
+  end
+
   defp send_join(state) do
     {ref, state} = next_ref(state)
     join_ref = "join_#{ref}"
-    payload = Map.merge(state.firmware_meta, %{"device_api_version" => @device_api_version})
+
+    payload =
+      state.firmware_meta
+      |> Map.merge(%{
+        "device_api_version" => @device_api_version,
+        "meta" => %{
+          "firmware_validated" => state.firmware_validated,
+          "firmware_auto_revert_detected" => false
+        }
+      })
+
     msg = Channel.encode_message(join_ref, "ref_#{ref}", "device", "phx_join", payload)
     :websocket.send_utf8(state.ws_pid, IO.iodata_to_binary(msg))
     %{state | join_ref: join_ref}
@@ -343,13 +364,24 @@ defmodule NervesHubLinkAVM do
     {ref, %{state | msg_ref: ref + 1}}
   end
 
+  defp open_websocket(url, opts) do
+    {:ok, :websocket.new(String.to_charlist(url), opts)}
+  rescue
+    e -> {:error, e}
+  catch
+    _, reason -> {:error, reason}
+  end
+
   # -- Connection management --
 
   defp disconnect(state) do
-    if state.heartbeat_ref, do: Process.cancel_timer(state.heartbeat_ref)
-    if state.reconnect_ref, do: Process.cancel_timer(state.reconnect_ref)
+    cancel_timer(state.heartbeat_ref)
+    cancel_timer(state.reconnect_ref)
     %{state | phase: :disconnected, heartbeat_ref: nil, reconnect_ref: nil, ws_pid: nil}
   end
+
+  defp cancel_timer(nil), do: :ok
+  defp cancel_timer(ref), do: Process.cancel_timer(ref)
 
   defp schedule_reconnect(state) do
     backoff = state.backoff
