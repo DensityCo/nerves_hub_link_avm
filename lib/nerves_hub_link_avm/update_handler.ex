@@ -7,8 +7,8 @@ defmodule NervesHubLinkAVM.UpdateHandler do
   @callback handle_chunk(data :: binary(), state :: term()) ::
               {:ok, new_state :: term()} | {:error, reason :: term()}
 
-  @doc "Called after all chunks. Verify hash, activate slot, trigger reboot."
-  @callback handle_finish(sha256 :: binary(), state :: term()) ::
+  @doc "Called after all chunks have been streamed and SHA256 verified by the client."
+  @callback handle_finish(state :: term()) ::
               :ok | {:error, reason :: term()}
 
   @doc "Called on first boot of new firmware to commit and prevent rollback."

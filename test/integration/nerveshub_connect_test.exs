@@ -81,9 +81,11 @@ defmodule NervesHubLinkAVM.Integration.ConnectTest do
       ref = "ref_1"
       payload = %{
         "device_api_version" => "2.0.0",
-        "uuid" => "test-integration-uuid",
-        "version" => "0.0.1-test",
-        "platform" => "host"
+        "nerves_fw_uuid" => "test-integration-uuid",
+        "nerves_fw_product" => "SmartKiosk",
+        "nerves_fw_architecture" => "generic",
+        "nerves_fw_version" => "0.0.1",
+        "nerves_fw_platform" => "host"
       }
 
       msg = Channel.encode_message(join_ref, ref, "device", "phx_join", payload)
@@ -148,9 +150,11 @@ defmodule NervesHubLinkAVM.Integration.ConnectTest do
       # 2. Join
       join_payload = %{
         "device_api_version" => "2.0.0",
-        "uuid" => "lifecycle-test-uuid",
-        "version" => "0.0.1",
-        "platform" => "host"
+        "nerves_fw_uuid" => "lifecycle-test-uuid",
+        "nerves_fw_product" => "SmartKiosk",
+        "nerves_fw_architecture" => "generic",
+        "nerves_fw_version" => "0.0.1",
+        "nerves_fw_platform" => "host"
       }
 
       join_msg = Channel.encode_message("join_1", "ref_1", "device", "phx_join", join_payload)

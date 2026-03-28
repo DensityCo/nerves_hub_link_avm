@@ -15,7 +15,7 @@ defmodule NervesHubLinkAVM.UpdateHandlerTest do
     end
 
     @impl true
-    def handle_finish(_sha256, state) do
+    def handle_finish(state) do
       send(self(), {:finish_called, %{state | finished: true}})
       :ok
     end
@@ -43,7 +43,7 @@ defmodule NervesHubLinkAVM.UpdateHandlerTest do
     def handle_chunk(_data, _state), do: {:error, :write_failed}
 
     @impl true
-    def handle_finish(_sha256, _state), do: {:error, :bad_hash}
+    def handle_finish(_state), do: {:error, :activation_failed}
 
     @impl true
     def handle_abort(_state), do: :ok
@@ -68,7 +68,7 @@ defmodule NervesHubLinkAVM.UpdateHandlerTest do
     test "handle_finish signals completion" do
       {:ok, state} = TestHandler.handle_begin(100, %{})
       {:ok, state} = TestHandler.handle_chunk("data", state)
-      assert :ok = TestHandler.handle_finish("sha256hash", state)
+      assert :ok = TestHandler.handle_finish(state)
       assert_receive {:finish_called, %{finished: true, chunks: ["data"]}}
     end
 
@@ -94,7 +94,7 @@ defmodule NervesHubLinkAVM.UpdateHandlerTest do
     end
 
     test "handle_finish returns error" do
-      assert {:error, :bad_hash} = FailingHandler.handle_finish("hash", %{})
+      assert {:error, :activation_failed} = FailingHandler.handle_finish(%{})
     end
   end
 
@@ -113,7 +113,7 @@ defmodule NervesHubLinkAVM.UpdateHandlerTest do
       assert length(state.chunks) == 3
       assert Enum.join(state.chunks) == "0123456789abcdefghijABCDEFGHIJ"
 
-      assert :ok = TestHandler.handle_finish("expected_sha", state)
+      assert :ok = TestHandler.handle_finish(state)
       assert_receive {:finish_called, %{finished: true}}
     end
 

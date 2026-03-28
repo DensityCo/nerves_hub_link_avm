@@ -18,8 +18,8 @@ defmodule NervesHubLinkAVMTest do
     end
 
     @impl true
-    def handle_finish(sha256, _state) do
-      send(:test_proc, {:finish, sha256})
+    def handle_finish(_state) do
+      send(:test_proc, :finish)
       :ok
     end
 
@@ -41,7 +41,13 @@ defmodule NervesHubLinkAVMTest do
       host: "hub.example.com",
       device_cert: "fake_cert",
       device_key: "fake_key",
-      firmware_meta: %{"uuid" => "test-uuid", "version" => "1.0.0"},
+      firmware_meta: %{
+        "nerves_fw_uuid" => "test-uuid",
+        "nerves_fw_product" => "test-product",
+        "nerves_fw_architecture" => "generic",
+        "nerves_fw_version" => "1.0.0",
+        "nerves_fw_platform" => "host"
+      },
       update_handler: MockHandler
     ]
   end
@@ -56,7 +62,8 @@ defmodule NervesHubLinkAVMTest do
       assert state.ssl == true
       assert state.device_cert == "fake_cert"
       assert state.device_key == "fake_key"
-      assert state.firmware_meta == %{"uuid" => "test-uuid", "version" => "1.0.0"}
+      assert state.firmware_meta["nerves_fw_uuid"] == "test-uuid"
+      assert state.firmware_meta["nerves_fw_platform"] == "host"
       assert state.update_handler == MockHandler
       assert state.msg_ref == 0
       assert state.phase == :disconnected
@@ -84,6 +91,14 @@ defmodule NervesHubLinkAVMTest do
     test "raises on missing required opts" do
       assert_raise KeyError, fn ->
         NervesHubLinkAVM.init(host: "example.com")
+      end
+    end
+
+    test "raises on missing required firmware_meta keys" do
+      opts = Keyword.put(default_opts(), :firmware_meta, %{"nerves_fw_uuid" => "x"})
+
+      assert_raise ArgumentError, ~r/missing required firmware metadata/, fn ->
+        NervesHubLinkAVM.init(opts)
       end
     end
   end

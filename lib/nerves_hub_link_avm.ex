@@ -10,6 +10,13 @@ defmodule NervesHubLinkAVM do
   @initial_backoff 1_000
   @max_backoff 30_000
   @device_api_version "2.0.0"
+  @required_firmware_meta_keys [
+    "nerves_fw_uuid",
+    "nerves_fw_product",
+    "nerves_fw_architecture",
+    "nerves_fw_version",
+    "nerves_fw_platform"
+  ]
 
   # -- Public API --
 
@@ -55,13 +62,16 @@ defmodule NervesHubLinkAVM do
 
   @impl true
   def init(opts) do
+    firmware_meta = Keyword.fetch!(opts, :firmware_meta)
+    validate_firmware_meta!(firmware_meta)
+
     state = %State{
       host: Keyword.fetch!(opts, :host),
       port: Keyword.get(opts, :port, 443),
       ssl: Keyword.get(opts, :ssl, true),
       device_cert: Keyword.fetch!(opts, :device_cert),
       device_key: Keyword.fetch!(opts, :device_key),
-      firmware_meta: Keyword.fetch!(opts, :firmware_meta),
+      firmware_meta: firmware_meta,
       update_handler: Keyword.fetch!(opts, :update_handler),
       msg_ref: 0,
       backoff: @initial_backoff
@@ -206,26 +216,16 @@ defmodule NervesHubLinkAVM do
   defp do_update(fw_url, meta, state) do
     handler = state.update_handler
     parent = self()
+    expected_sha256 = Map.get(meta, "sha256", "")
 
-    result =
-      with {:ok, size} <- get_firmware_size(fw_url),
-           {:ok, handler_state} <- handler.handle_begin(size, meta) do
-        stream_firmware(fw_url, size, handler, handler_state, parent)
-      end
-
-    case result do
-      {:ok, handler_state} ->
-        sha256 = Map.get(meta, "sha256", <<>>)
-
-        case handler.handle_finish(sha256, handler_state) do
-          :ok ->
-            IO.puts("NervesHubLinkAVM: update complete")
-
-          {:error, reason} ->
-            IO.puts("NervesHubLinkAVM: handle_finish failed: #{inspect(reason)}")
-            send_status(parent, "update_failed")
-        end
-
+    with {:ok, size} <- get_firmware_size(fw_url),
+         {:ok, handler_state} <- handler.handle_begin(size, meta),
+         {:ok, handler_state, hash_ctx} <-
+           stream_firmware(fw_url, size, handler, handler_state, parent),
+         :ok <- verify_sha256(hash_ctx, expected_sha256),
+         :ok <- handler.handle_finish(handler_state) do
+      IO.puts("NervesHubLinkAVM: update complete")
+    else
       {:error, reason, handler_state} ->
         IO.puts("NervesHubLinkAVM: update failed: #{inspect(reason)}")
         handler.handle_abort(handler_state)
@@ -235,6 +235,16 @@ defmodule NervesHubLinkAVM do
         IO.puts("NervesHubLinkAVM: update failed: #{inspect(reason)}")
         send_status(parent, "update_failed")
     end
+  end
+
+  defp verify_sha256(_hash_ctx, ""), do: :ok
+
+  defp verify_sha256(hash_ctx, expected) do
+    computed =
+      :crypto.hash_final(hash_ctx)
+      |> :binary.encode_hex(:lowercase)
+
+    if computed == expected, do: :ok, else: {:error, :sha256_mismatch}
   end
 
   defp get_firmware_size(fw_url) do
@@ -248,6 +258,7 @@ defmodule NervesHubLinkAVM do
     init_acc = %{
       handler: handler,
       handler_state: handler_state,
+      hash_ctx: :crypto.hash_init(:sha256),
       bytes_received: 0,
       total_size: total_size,
       parent: parent,
@@ -255,7 +266,7 @@ defmodule NervesHubLinkAVM do
     }
 
     case HTTPClient.get_stream(fw_url, init_acc, &stream_chunk_callback/2) do
-      {:ok, %{handler_state: hs}} -> {:ok, hs}
+      {:ok, %{handler_state: hs, hash_ctx: ctx}} -> {:ok, hs, ctx}
       {:error, reason} -> {:error, reason, handler_state}
     end
   end
@@ -264,6 +275,7 @@ defmodule NervesHubLinkAVM do
     case acc.handler.handle_chunk(chunk, acc.handler_state) do
       {:ok, new_hs} ->
         bytes = acc.bytes_received + byte_size(chunk)
+        new_ctx = :crypto.hash_update(acc.hash_ctx, chunk)
 
         progress =
           if acc.total_size > 0 do
@@ -276,7 +288,14 @@ defmodule NervesHubLinkAVM do
           send_progress(acc.parent, progress)
         end
 
-        {:ok, %{acc | handler_state: new_hs, bytes_received: bytes, last_progress: progress}}
+        {:ok,
+         %{
+           acc
+           | handler_state: new_hs,
+             hash_ctx: new_ctx,
+             bytes_received: bytes,
+             last_progress: progress
+         }}
 
       {:error, reason} ->
         {:error, reason}
@@ -338,5 +357,14 @@ defmodule NervesHubLinkAVM do
     ref = Process.send_after(self(), :connect, backoff)
     new_backoff = min(backoff * 2, @max_backoff)
     %{state | phase: :disconnected, reconnect_ref: ref, backoff: new_backoff}
+  end
+
+  defp validate_firmware_meta!(meta) do
+    missing = Enum.filter(@required_firmware_meta_keys, fn k -> not is_map_key(meta, k) end)
+
+    if missing != [] do
+      raise ArgumentError,
+            "missing required firmware metadata keys: #{Enum.join(missing, ", ")}"
+    end
   end
 end
