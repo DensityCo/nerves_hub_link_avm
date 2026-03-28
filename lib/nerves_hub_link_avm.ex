@@ -54,7 +54,9 @@ defmodule NervesHubLinkAVM do
       :heartbeat_ref,
       :reconnect_ref,
       :join_ref,
+      :extensions_join_ref,
       :msg_ref,
+      extensions: %{},
       phase: :disconnected,
       backoff: 1_000,
       firmware_validated: false
@@ -73,6 +75,7 @@ defmodule NervesHubLinkAVM do
       auth: build_auth(opts),
       firmware_meta: firmware_meta,
       device_handler: Keyword.fetch!(opts, :device_handler),
+      extensions: Map.new(Keyword.get(opts, :extensions, [])),
       msg_ref: 0,
       backoff: @initial_backoff
     }
@@ -221,6 +224,45 @@ defmodule NervesHubLinkAVM do
     end
 
     {:noreply, state}
+  end
+
+  # -- Extensions protocol --
+
+  defp handle_channel_message({_join_ref, _ref, "device", "extensions:get", _payload}, state) do
+    if state.extensions != %{} do
+      state = join_extensions(state)
+      {:noreply, state}
+    else
+      {:noreply, state}
+    end
+  end
+
+  defp handle_channel_message(
+         {_join_ref, _ref, "extensions", "phx_reply", %{"status" => "ok", "response" => attach_list}},
+         state
+       )
+       when is_list(attach_list) do
+    IO.puts("NervesHubLinkAVM: extensions joined, attaching: #{inspect(attach_list)}")
+
+    Enum.each(attach_list, fn ext ->
+      send_extensions_message(state, "#{ext}:attached", %{})
+    end)
+
+    {:noreply, state}
+  end
+
+  defp handle_channel_message({_join_ref, _ref, "extensions", "health:check", _payload}, state) do
+    case Map.get(state.extensions, :health) do
+      nil ->
+        {:noreply, state}
+
+      provider ->
+        metrics = provider.health_check()
+        timestamp = DateTime.utc_now() |> DateTime.to_iso8601()
+        payload = %{"value" => %{"metrics" => metrics, "timestamp" => timestamp}}
+        send_extensions_message(state, "health:report", payload)
+        {:noreply, state}
+    end
   end
 
   defp handle_channel_message({_join_ref, _ref, _topic, "phx_error", payload}, state) do
@@ -389,6 +431,26 @@ defmodule NervesHubLinkAVM do
   defp send_channel_message(state, event, payload) do
     {ref, _state} = next_ref(state)
     msg = Channel.encode_message(state.join_ref, "ref_#{ref}", "device", event, payload)
+    :websocket.send_utf8(state.ws_pid, IO.iodata_to_binary(msg))
+  end
+
+  defp join_extensions(state) do
+    {ref, state} = next_ref(state)
+    join_ref = "ext_#{ref}"
+
+    versions =
+      state.extensions
+      |> Map.keys()
+      |> Map.new(fn key -> {Atom.to_string(key), "0.0.1"} end)
+
+    msg = Channel.encode_message(join_ref, "ref_#{ref}", "extensions", "phx_join", versions)
+    :websocket.send_utf8(state.ws_pid, IO.iodata_to_binary(msg))
+    %{state | extensions_join_ref: join_ref}
+  end
+
+  defp send_extensions_message(state, event, payload) do
+    {ref, _state} = next_ref(state)
+    msg = Channel.encode_message(state.extensions_join_ref, "ref_#{ref}", "extensions", event, payload)
     :websocket.send_utf8(state.ws_pid, IO.iodata_to_binary(msg))
   end
 

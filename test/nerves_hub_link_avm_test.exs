@@ -375,4 +375,70 @@ defmodule NervesHubLinkAVMTest do
       assert_receive :connect
     end
   end
+
+  defmodule MockHealthProvider do
+    @behaviour NervesHubLinkAVM.HealthProvider
+
+    @impl true
+    def health_check do
+      %{"cpu_temp" => 42.5, "mem_used_percent" => 65}
+    end
+  end
+
+  describe "extensions - init" do
+    test "extensions default to empty map" do
+      {:ok, state} = NervesHubLinkAVM.init(default_opts())
+      assert_receive :connect
+      assert state.extensions == %{}
+    end
+
+    test "extensions stored from opts" do
+      opts = Keyword.put(default_opts(), :extensions, health: MockHealthProvider)
+      {:ok, state} = NervesHubLinkAVM.init(opts)
+      assert_receive :connect
+      assert state.extensions == %{health: MockHealthProvider}
+    end
+  end
+
+  describe "extensions - protocol" do
+    setup do
+      opts = Keyword.put(default_opts(), :extensions, health: MockHealthProvider)
+      {:ok, state} = NervesHubLinkAVM.init(opts)
+      assert_receive :connect
+      fake_ws = self()
+      state = %{state | ws_pid: fake_ws, phase: :joined, join_ref: "join_0"}
+      {:ok, state: state, ws: fake_ws}
+    end
+
+    test "extensions:get triggers extensions join", %{state: state, ws: ws} do
+      msg = Channel.encode_message("join_0", "ref_1", "device", "extensions:get", %{})
+
+      {:noreply, new_state} =
+        NervesHubLinkAVM.handle_info({:websocket, ws, IO.iodata_to_binary(msg)}, state)
+
+      assert new_state.extensions_join_ref =~ "ext_"
+    end
+
+    test "extensions:get ignored when no extensions configured", %{state: state, ws: ws} do
+      state = %{state | extensions: %{}}
+      msg = Channel.encode_message("join_0", "ref_1", "device", "extensions:get", %{})
+
+      {:noreply, new_state} =
+        NervesHubLinkAVM.handle_info({:websocket, ws, IO.iodata_to_binary(msg)}, state)
+
+      assert new_state.extensions_join_ref == nil
+    end
+
+    test "health:check calls provider and responds", %{state: state, ws: ws} do
+      state = %{state | extensions_join_ref: "ext_0"}
+      msg = Channel.encode_message("ext_0", "ref_1", "extensions", "health:check", %{})
+
+      {:noreply, _state} =
+        NervesHubLinkAVM.handle_info({:websocket, ws, IO.iodata_to_binary(msg)}, state)
+
+      # The response is sent via websocket - since ws is self(), we receive it
+      # as a raw binary message. Verify it was sent.
+      assert_receive {:"$gen_cast", {:send, 1, _data}}
+    end
+  end
 end
