@@ -225,7 +225,7 @@ defmodule NervesHubLinkAVMTest do
   end
 
   describe "handle_call/3 - confirm_update" do
-    test "calls handler's handle_confirm when implemented" do
+    test "calls handler's fwup_confirm when implemented" do
       Process.register(self(), :test_proc)
       {:ok, state} = NervesHubLinkAVM.init(default_opts())
       assert_receive :connect
