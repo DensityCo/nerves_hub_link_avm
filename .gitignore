@@ -3,6 +3,7 @@
 /doc/
 *.ez
 *.beam
+erl_crash.dump
 
 # Test artifacts
 /.mix_test_failures

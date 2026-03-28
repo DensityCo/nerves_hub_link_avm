@@ -29,7 +29,7 @@ defmodule NervesHubLinkAVM.MixProject do
   defp package do
     [
       maintainers: ["Eliel A. Gordon"],
-      licenses: ["Apache-2.0"],
+      licenses: ["MIT"],
       links: %{"GitHub" => "https://github.com/DensityCo/nerves_hub_link_avm"}
     ]
   end

@@ -162,4 +162,4 @@ Eliel A. Gordon (gordoneliel@gmail.com)
 
 ## License
 
-Apache-2.0
+MIT
