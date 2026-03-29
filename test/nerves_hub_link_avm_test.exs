@@ -153,7 +153,7 @@ defmodule NervesHubLinkAVMTest do
     test "malformed JSON raises (json module doesn't return errors)", %{state: state, ws: ws} do
       # :json.decode raises on invalid input — this is expected behavior
       # In production the websocket layer ensures only valid frames arrive
-      assert_raise ErlangError, fn ->
+      assert_raise MatchError, fn ->
         NervesHubLinkAVM.handle_info({:websocket, ws, "{bad json"}, state)
       end
     end

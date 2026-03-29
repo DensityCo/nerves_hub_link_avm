@@ -66,13 +66,8 @@ defmodule NervesHubLinkAVM.HTTPClient do
     {host_port, path} =
       case :binary.split(rest, <<"/">>) do
         [hp] -> {hp, "/"}
-        [hp, p] -> {hp, <<"/">>, p}
+        [hp, p] -> {hp, <<"/", p::binary>>}
       end
-
-    path = case path do
-      {_, slash, p} -> <<slash::binary, p::binary>>
-      p -> p
-    end
 
     {host, port} =
       case :binary.split(host_port, <<":">>) do

@@ -41,9 +41,8 @@ defmodule NervesHubLinkAVM.ChannelTest do
     end
 
     test "decodes message with null join_ref" do
-      # OTP :json.decode maps JSON null to the :null atom
       raw = ~s([null, "hb_1", "phoenix", "heartbeat", {}])
-      assert {:ok, {:null, "hb_1", "phoenix", "heartbeat", %{}}} =
+      assert {:ok, {nil, "hb_1", "phoenix", "heartbeat", %{}}} =
                Channel.decode_message(raw)
     end
 
@@ -58,7 +57,7 @@ defmodule NervesHubLinkAVM.ChannelTest do
     end
 
     test "raises on invalid JSON" do
-      assert_raise ErlangError, fn ->
+      assert_raise MatchError, fn ->
         Channel.decode_message("{not json")
       end
     end

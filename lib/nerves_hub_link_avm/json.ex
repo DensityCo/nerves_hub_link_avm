@@ -6,6 +6,7 @@ defmodule NervesHubLinkAVM.JSON do
   def encode(nil), do: "null"
   def encode(v) when is_binary(v), do: <<"\"", escape_string(v)::binary, "\"">>
   def encode(v) when is_integer(v), do: :erlang.integer_to_binary(v)
+  def encode(v) when is_float(v), do: :erlang.float_to_binary(v, [{:decimals, 10}, :compact])
   def encode(true), do: "true"
   def encode(false), do: "false"
   def encode(v) when is_atom(v), do: <<"\"", :erlang.atom_to_binary(v)::binary, "\"">>
@@ -94,7 +95,13 @@ defmodule NervesHubLinkAVM.JSON do
     decode_number(rest, <<acc::binary, c>>)
   end
   defp decode_number(rest, acc) do
-    {:erlang.binary_to_integer(acc), rest}
+    val =
+      case :binary.match(acc, <<".">>) do
+        :nomatch -> :erlang.binary_to_integer(acc)
+        _ -> :erlang.binary_to_float(acc)
+      end
+
+    {val, rest}
   end
 
   defp skip_ws(<<" ", rest::binary>>), do: skip_ws(rest)
