@@ -76,7 +76,8 @@ send_utf8(WebSocket, Data) ->
     buffer :: binary(),
     frames :: undefined | {integer(), binary()},
     select_handle = undefined,
-    poll_timer = undefined
+    poll_timer = undefined,
+    ssl_reader = undefined
 }).
 
 init({accept, ControllingProcess, Transport}) ->
@@ -143,18 +144,31 @@ handle_info(
     State1 = recv_data_loop_tcp(State0),
     {noreply, State1};
 
-% SSL: timer-based polling
+% SSL: data from reader process
 handle_info(
-    ssl_poll,
-    #state{transport = {ssl, _}} = State0
+    {ssl_data, Data},
+    #state{buffer = Buffer} = State0
 ) ->
-    State1 = State0#state{poll_timer = undefined},
-    State2 = recv_data_loop_ssl(State1),
+    State1 = State0#state{buffer = <<Buffer/binary, Data/binary>>},
+    State2 = process_recv_buffer(State1),
     {noreply, State2};
+
+% SSL: connection closed
+handle_info(
+    ssl_closed,
+    State0
+) ->
+    {noreply, State0#state{ready_state = closed}};
 
 handle_info(_Msg, State) ->
     {noreply, State}.
 
+terminate(_Reason, #state{transport = {ssl, SslSocket}}) ->
+    catch ssl:close(SslSocket),
+    ok;
+terminate(_Reason, #state{transport = {tcp, Socket}}) ->
+    catch socket:close(Socket),
+    ok;
 terminate(_Reason, _State) ->
     ok.
 
@@ -177,9 +191,11 @@ transport_recv_blocking({ssl, Socket}, _Timeout) ->
 
 start_recv(#state{transport = {tcp, _}} = State) ->
     recv_data_loop_tcp(State);
-start_recv(#state{transport = {ssl, _}} = State) ->
-    %% Don't block in init — schedule first poll immediately
-    schedule_ssl_poll(State).
+start_recv(#state{transport = {ssl, SslSocket}} = State) ->
+    %% Spawn a dedicated reader so gen_server stays responsive for sends
+    Owner = self(),
+    Reader = spawn_link(fun() -> ssl_reader_loop(Owner, SslSocket) end),
+    State#state{ssl_reader = Reader}.
 
 %% -- TCP recv (async select) --
 
@@ -199,25 +215,18 @@ recv_data_loop_tcp(
             State0#state{select_handle = SelectHandle}
     end.
 
-%% -- SSL recv (blocking, then schedule next read) --
+%% -- SSL reader process (runs in separate process, sends data to gen_server) --
 
-recv_data_loop_ssl(
-    #state{transport = {ssl, SslSocket}, buffer = Buffer} = State0
-) ->
+ssl_reader_loop(Owner, SslSocket) ->
     case ssl:recv(SslSocket, 0) of
         {ok, Data} ->
-            State1 = State0#state{buffer = <<Buffer/binary, Data/binary>>},
-            State2 = process_recv_buffer(State1),
-            schedule_ssl_poll(State2);
+            Owner ! {ssl_data, Data},
+            ssl_reader_loop(Owner, SslSocket);
         {error, closed} ->
-            State0#state{ready_state = closed}
+            Owner ! ssl_closed;
+        {error, _Reason} ->
+            Owner ! ssl_closed
     end.
-
-schedule_ssl_poll(#state{poll_timer = undefined} = State) ->
-    Ref = erlang:send_after(100, self(), ssl_poll),
-    State#state{poll_timer = Ref};
-schedule_ssl_poll(State) ->
-    State.
 
 %% -- URL parsing and connection --
 
