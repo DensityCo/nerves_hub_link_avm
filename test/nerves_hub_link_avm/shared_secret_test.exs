@@ -50,4 +50,66 @@ defmodule NervesHubLinkAVM.SharedSecretTest do
       assert h1[<<"x-nh-signature">>] != h2[<<"x-nh-signature">>]
     end
   end
+
+  describe "server-compatible verification" do
+    test "signature is verifiable with server-side logic" do
+      key = "nhp_test"
+      secret = "mysecret"
+      identifier = "device-001"
+
+      headers = SharedSecret.build_headers(key, secret, identifier) |> Map.new()
+      time = headers[<<"x-nh-time">>]
+      alg = headers[<<"x-nh-alg">>]
+
+      # Reconstruct salt exactly as server does
+      salt = "NH1:device-socket:shared-secret:connect\n\nx-nh-alg=#{alg}\nx-nh-key=#{key}\nx-nh-time=#{time}\n"
+
+      # Derive PBKDF2 key
+      derived = :crypto.pbkdf2_hmac(:sha256, secret, salt, 1000, 32)
+
+      # Split token: protected.payload.mac
+      [protected, payload, mac] = String.split(headers[<<"x-nh-signature">>], ".")
+
+      # Verify HMAC
+      message = "#{protected}.#{payload}"
+      expected_mac = :crypto.mac(:hmac, :sha256, derived, message)
+      assert url_decode64(mac) == expected_mac
+
+      # Verify payload contains the identifier
+      {^identifier, signed_at_ms, max_age} =
+        url_decode64(payload) |> :erlang.binary_to_term()
+
+      assert is_integer(signed_at_ms)
+      assert max_age == 86400
+    end
+
+    test "signature fails verification with wrong secret" do
+      headers = SharedSecret.build_headers("key", "real_secret", "device") |> Map.new()
+      time = headers[<<"x-nh-time">>]
+      alg = headers[<<"x-nh-alg">>]
+
+      salt = "NH1:device-socket:shared-secret:connect\n\nx-nh-alg=#{alg}\nx-nh-key=key\nx-nh-time=#{time}\n"
+      wrong_derived = :crypto.pbkdf2_hmac(:sha256, "wrong_secret", salt, 1000, 32)
+
+      [protected, payload, mac] = String.split(headers[<<"x-nh-signature">>], ".")
+      message = "#{protected}.#{payload}"
+      wrong_mac = :crypto.mac(:hmac, :sha256, wrong_derived, message)
+
+      refute url_decode64(mac) == wrong_mac
+    end
+  end
+
+  defp url_decode64(data) do
+    padded =
+      case rem(byte_size(data), 4) do
+        2 -> <<data::binary, "==">>
+        3 -> <<data::binary, "=">>
+        _ -> data
+      end
+
+    padded
+    |> String.replace("-", "+")
+    |> String.replace("_", "/")
+    |> Base.decode64!()
+  end
 end

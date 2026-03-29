@@ -14,11 +14,9 @@ defmodule NervesHubLinkAVM.SharedSecret do
   def build_headers(product_key, product_secret, device_identifier) do
     time = unix_time()
     time_str = :erlang.integer_to_binary(time)
-    :io.format(~c"[SharedSecret] time=~s universaltime=~p\n", [time_str, :erlang.universaltime()])
 
     salt = build_salt(product_key, time_str)
     signature = sign(product_secret, salt, device_identifier, time)
-    :io.format(~c"[SharedSecret] sig=~s\n", [signature])
 
     [
       {<<"x-nh-alg">>, @alg},
