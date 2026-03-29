@@ -76,7 +76,7 @@ defmodule NervesHubLinkAVM do
       auth: build_auth(opts),
       firmware_meta: firmware_meta,
       device_handler: Keyword.fetch!(opts, :device_handler),
-      extensions: Map.new(Keyword.get(opts, :extensions, [])),
+      extensions: :maps.from_list(Keyword.get(opts, :extensions, [])),
       http_client: Keyword.get(opts, :http_client, HTTPClient),
       msg_ref: 0,
       backoff: @initial_backoff
@@ -202,7 +202,14 @@ defmodule NervesHubLinkAVM do
        ) do
     IO.puts("NervesHubLinkAVM: joined device channel")
     ref = Process.send_after(self(), :heartbeat, @heartbeat_interval)
-    {:noreply, %{state | phase: :joined, heartbeat_ref: ref}}
+    state = %{state | phase: :joined, heartbeat_ref: ref}
+    # Proactively join extensions channel if extensions configured
+    state = if state.extensions != %{} do
+      join_extensions(state)
+    else
+      state
+    end
+    {:noreply, state}
   end
 
   defp handle_channel_message(
@@ -277,6 +284,11 @@ defmodule NervesHubLinkAVM do
     end
   end
 
+  # Heartbeat replies — expected, no action needed
+  defp handle_channel_message({nil, <<"hb_", _::binary>>, <<"phoenix">>, "phx_reply", _}, state) do
+    {:noreply, state}
+  end
+
   defp handle_channel_message({_join_ref, _ref, _topic, "phx_error", payload}, state) do
     IO.puts("NervesHubLinkAVM: channel error: #{inspect(payload)}")
     state = disconnect(state)
@@ -289,7 +301,8 @@ defmodule NervesHubLinkAVM do
     {:noreply, schedule_reconnect(state)}
   end
 
-  defp handle_channel_message(_msg, state) do
+  defp handle_channel_message(msg, state) do
+    :io.format(~c"NervesHubLinkAVM: unhandled msg: ~p\n", [msg])
     {:noreply, state}
   end
 
@@ -437,21 +450,21 @@ defmodule NervesHubLinkAVM do
       })
 
     msg = Channel.encode_message(join_ref, "ref_#{ref}", "device", "phx_join", payload)
-    :websocket.send_utf8(state.ws_pid, IO.iodata_to_binary(msg))
+    :websocket.send_utf8(state.ws_pid, :erlang.iolist_to_binary(msg))
     %{state | join_ref: join_ref}
   end
 
   defp send_heartbeat(state) do
     {ref, state} = next_ref(state)
     msg = Channel.encode_message(nil, "hb_#{ref}", "phoenix", "heartbeat", %{})
-    :websocket.send_utf8(state.ws_pid, IO.iodata_to_binary(msg))
+    :websocket.send_utf8(state.ws_pid, :erlang.iolist_to_binary(msg))
     state
   end
 
   defp send_channel_message(state, event, payload) do
     {ref, _state} = next_ref(state)
     msg = Channel.encode_message(state.join_ref, "ref_#{ref}", "device", event, payload)
-    :websocket.send_utf8(state.ws_pid, IO.iodata_to_binary(msg))
+    :websocket.send_utf8(state.ws_pid, :erlang.iolist_to_binary(msg))
   end
 
   defp join_extensions(state) do
@@ -461,17 +474,17 @@ defmodule NervesHubLinkAVM do
     versions =
       state.extensions
       |> Map.keys()
-      |> Map.new(fn key -> {Atom.to_string(key), "0.0.1"} end)
+      |> Enum.reduce(%{}, fn key, acc -> Map.put(acc, :erlang.atom_to_binary(key), "0.0.1") end)
 
     msg = Channel.encode_message(join_ref, "ref_#{ref}", "extensions", "phx_join", versions)
-    :websocket.send_utf8(state.ws_pid, IO.iodata_to_binary(msg))
+    :websocket.send_utf8(state.ws_pid, :erlang.iolist_to_binary(msg))
     %{state | extensions_join_ref: join_ref}
   end
 
   defp send_extensions_message(state, event, payload) do
     {ref, _state} = next_ref(state)
     msg = Channel.encode_message(state.extensions_join_ref, "ref_#{ref}", "extensions", event, payload)
-    :websocket.send_utf8(state.ws_pid, IO.iodata_to_binary(msg))
+    :websocket.send_utf8(state.ws_pid, :erlang.iolist_to_binary(msg))
   end
 
   defp next_ref(%State{msg_ref: ref} = state) do
@@ -510,7 +523,7 @@ defmodule NervesHubLinkAVM do
     {{y, mo, d}, {h, mi, s}} = :calendar.system_time_to_universal_time(seconds, :second)
 
     :io_lib.format("~4..0B-~2..0B-~2..0BT~2..0B:~2..0B:~2..0BZ", [y, mo, d, h, mi, s])
-    |> IO.iodata_to_binary()
+    |> :erlang.iolist_to_binary()
   end
 
   defp validate_firmware_meta!(meta) do
