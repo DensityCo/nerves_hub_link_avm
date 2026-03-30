@@ -69,6 +69,7 @@ defmodule NervesHubLinkAVM.Extensions do
   end
 
   defp put_state(extensions, key, new_state) do
-    Map.update!(extensions, key, fn entry -> %{entry | state: new_state} end)
+    entry = Map.get(extensions, key)
+    Map.put(extensions, key, %{entry | state: new_state})
   end
 end
