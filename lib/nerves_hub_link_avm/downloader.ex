@@ -12,7 +12,8 @@ defmodule NervesHubLinkAVM.Downloader do
   """
   def download(http, url, expected_sha256, writer, writer_state, progress_fn) do
     with {:ok, size} <- get_size(http, url),
-         {:ok, writer_state, hash_ctx} <- stream(http, url, size, writer, writer_state, progress_fn),
+         {:ok, writer_state, hash_ctx} <-
+           stream(http, url, size, writer, writer_state, progress_fn),
          :ok <- verify_sha256(hash_ctx, expected_sha256) do
       {:ok, writer_state}
     else

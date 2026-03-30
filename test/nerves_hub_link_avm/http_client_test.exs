@@ -55,7 +55,9 @@ defmodule NervesHubLinkAVM.HTTPClientTest do
       ref = make_ref()
       responses = [{:status, ref, 200}]
       result = %{status: nil, content_length: nil}
-      assert {:continue, %{status: 200}} = HTTPClient.process_head_responses(responses, ref, result)
+
+      assert {:continue, %{status: 200}} =
+               HTTPClient.process_head_responses(responses, ref, result)
     end
 
     test "returns done when done response received" do
@@ -76,7 +78,9 @@ defmodule NervesHubLinkAVM.HTTPClientTest do
       ref = make_ref()
       responses = [{:something_else, ref, "ignored"}, {:status, ref, 200}]
       result = %{status: nil, content_length: nil}
-      assert {:continue, %{status: 200}} = HTTPClient.process_head_responses(responses, ref, result)
+
+      assert {:continue, %{status: 200}} =
+               HTTPClient.process_head_responses(responses, ref, result)
     end
 
     test "ignores responses for different ref" do
@@ -84,7 +88,9 @@ defmodule NervesHubLinkAVM.HTTPClientTest do
       other_ref = make_ref()
       responses = [{:status, other_ref, 404}, {:status, ref, 200}]
       result = %{status: nil, content_length: nil}
-      assert {:continue, %{status: 200}} = HTTPClient.process_head_responses(responses, ref, result)
+
+      assert {:continue, %{status: 200}} =
+               HTTPClient.process_head_responses(responses, ref, result)
     end
   end
 
@@ -114,7 +120,11 @@ defmodule NervesHubLinkAVM.HTTPClientTest do
 
     test "detects redirect with Location header" do
       ref = make_ref()
-      responses = [{:status, ref, 302}, {:header, ref, {"Location", "https://new.example.com/fw"}}]
+
+      responses = [
+        {:status, ref, 302},
+        {:header, ref, {"Location", "https://new.example.com/fw"}}
+      ]
 
       assert {:redirect, "https://new.example.com/fw"} =
                HTTPClient.process_stream_responses(responses, ref, "", &noop/2, nil)
@@ -122,7 +132,11 @@ defmodule NervesHubLinkAVM.HTTPClientTest do
 
     test "detects redirect with lowercase location header" do
       ref = make_ref()
-      responses = [{:status, ref, 301}, {:header, ref, {"location", "https://new.example.com/fw"}}]
+
+      responses = [
+        {:status, ref, 301},
+        {:header, ref, {"location", "https://new.example.com/fw"}}
+      ]
 
       assert {:redirect, "https://new.example.com/fw"} =
                HTTPClient.process_stream_responses(responses, ref, "", &noop/2, nil)
@@ -162,6 +176,7 @@ defmodule NervesHubLinkAVM.HTTPClientTest do
       responses = [{:data, ref, "a"}, {:data, ref, "b"}]
 
       called = :counters.new(1, [:atomics])
+
       fun = fn _chunk, _acc ->
         :counters.add(called, 1, 1)
         {:error, :fail}

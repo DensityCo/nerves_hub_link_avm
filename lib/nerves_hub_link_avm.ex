@@ -135,7 +135,9 @@ defmodule NervesHubLinkAVM do
 
   def handle_info({:websocket, ws_pid, raw}, %State{ws_pid: ws_pid} = state) do
     case Channel.decode_message(raw) do
-      {:ok, msg} -> handle_channel_message(msg, state)
+      {:ok, msg} ->
+        handle_channel_message(msg, state)
+
       {:error, reason} ->
         IO.puts("NervesHubLinkAVM: decode error: #{inspect(reason)}")
         {:noreply, state}
@@ -214,7 +216,8 @@ defmodule NervesHubLinkAVM do
   end
 
   defp handle_channel_message(
-         {_join_ref, _ref, "extensions", "phx_reply", %{"status" => "ok", "response" => attach_list}},
+         {_join_ref, _ref, "extensions", "phx_reply",
+          %{"status" => "ok", "response" => attach_list}},
          state
        )
        when is_list(attach_list) do
@@ -326,7 +329,15 @@ defmodule NervesHubLinkAVM do
   defp disconnect(state) do
     cancel_timer(state.heartbeat_ref)
     cancel_timer(state.reconnect_ref)
-    %{state | phase: :disconnected, heartbeat_ref: nil, reconnect_ref: nil, ws_pid: nil, extensions_join_ref: nil}
+
+    %{
+      state
+      | phase: :disconnected,
+        heartbeat_ref: nil,
+        reconnect_ref: nil,
+        ws_pid: nil,
+        extensions_join_ref: nil
+    }
   end
 
   defp cancel_timer(nil), do: :ok

@@ -62,7 +62,8 @@ defmodule NervesHubLinkAVM.SharedSecretTest do
       alg = headers[<<"x-nh-alg">>]
 
       # Reconstruct salt exactly as server does
-      salt = "NH1:device-socket:shared-secret:connect\n\nx-nh-alg=#{alg}\nx-nh-key=#{key}\nx-nh-time=#{time}\n"
+      salt =
+        "NH1:device-socket:shared-secret:connect\n\nx-nh-alg=#{alg}\nx-nh-key=#{key}\nx-nh-time=#{time}\n"
 
       # Derive PBKDF2 key
       derived = :crypto.pbkdf2_hmac(:sha256, secret, salt, 1000, 32)
@@ -88,7 +89,9 @@ defmodule NervesHubLinkAVM.SharedSecretTest do
       time = headers[<<"x-nh-time">>]
       alg = headers[<<"x-nh-alg">>]
 
-      salt = "NH1:device-socket:shared-secret:connect\n\nx-nh-alg=#{alg}\nx-nh-key=key\nx-nh-time=#{time}\n"
+      salt =
+        "NH1:device-socket:shared-secret:connect\n\nx-nh-alg=#{alg}\nx-nh-key=key\nx-nh-time=#{time}\n"
+
       wrong_derived = :crypto.pbkdf2_hmac(:sha256, "wrong_secret", salt, 1000, 32)
 
       [protected, payload, mac] = String.split(headers[<<"x-nh-signature">>], ".")

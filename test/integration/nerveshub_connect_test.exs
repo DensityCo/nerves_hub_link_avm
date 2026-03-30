@@ -66,8 +66,9 @@ defmodule NervesHubLinkAVM.Integration.ConnectTest do
 
       assert is_pid(pid), "websocket.new should return {:ok, pid}"
 
-      assert_receive {:websocket_open, ^pid}, 5000,
-        "Expected websocket_open within 5s — is NervesHub running at #{url}?"
+      assert_receive {:websocket_open, ^pid},
+                     5000,
+                     "Expected websocket_open within 5s — is NervesHub running at #{url}?"
 
       IO.puts("  Connected successfully")
     end
@@ -79,6 +80,7 @@ defmodule NervesHubLinkAVM.Integration.ConnectTest do
       # Send a Phoenix channel join
       join_ref = "join_1"
       ref = "ref_1"
+
       payload = %{
         "device_api_version" => "2.0.0",
         "uuid" => "test-integration-uuid",
@@ -161,7 +163,10 @@ defmodule NervesHubLinkAVM.Integration.ConnectTest do
       :websocket.send_utf8(pid, IO.iodata_to_binary(join_msg))
 
       join_reply = receive_ws_message(pid, 5000)
-      IO.puts("  [2/4] Join reply: #{inspect(elem(join_reply, 3))} -> #{inspect(elem(join_reply, 4))}")
+
+      IO.puts(
+        "  [2/4] Join reply: #{inspect(elem(join_reply, 3))} -> #{inspect(elem(join_reply, 4))}"
+      )
 
       # 3. Heartbeat
       hb_msg = Channel.encode_message(nil, "hb_1", "phoenix", "heartbeat", %{})

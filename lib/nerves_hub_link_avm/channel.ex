@@ -19,6 +19,7 @@ defmodule NervesHubLinkAVM.Channel do
     case JSON.decode(raw) do
       [join_ref, ref, topic, event, payload] ->
         {:ok, {join_ref, ref, topic, event, payload}}
+
       other ->
         {:error, {:unexpected_format, other}}
     end

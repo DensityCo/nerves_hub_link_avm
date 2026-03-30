@@ -61,7 +61,7 @@ defmodule NervesHubLinkAVM.Configurator do
 
       true ->
         raise ArgumentError,
-          "must provide either :device_cert/:device_key (mTLS) or :product_key/:product_secret/:identifier (shared secret)"
+              "must provide either :device_cert/:device_key (mTLS) or :product_key/:product_secret/:identifier (shared secret)"
     end
   end
 
@@ -105,7 +105,9 @@ defmodule NervesHubLinkAVM.Configurator do
   defp parse_and_init_extensions(config) do
     parsed =
       Enum.map(config, fn
-        {key, {mod, opts}} -> {key, {mod, opts}}
+        {key, {mod, opts}} ->
+          {key, {mod, opts}}
+
         {key, provider} when is_atom(provider) ->
           case Map.get(@known_extensions, key) do
             nil -> raise ArgumentError, "unknown extension shorthand: #{key}"

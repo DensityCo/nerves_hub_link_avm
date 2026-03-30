@@ -36,12 +36,14 @@ defmodule NervesHubLinkAVM.ChannelTest do
   describe "decode_message/1" do
     test "decodes a valid 5-element JSON array" do
       raw = :json.encode(["join_0", "ref_0", "device", "phx_reply", %{"status" => "ok"}])
+
       assert {:ok, {"join_0", "ref_0", "device", "phx_reply", %{"status" => "ok"}}} =
                Channel.decode_message(IO.iodata_to_binary(raw))
     end
 
     test "decodes message with null join_ref" do
       raw = ~s([null, "hb_1", "phoenix", "heartbeat", {}])
+
       assert {:ok, {nil, "hb_1", "phoenix", "heartbeat", %{}}} =
                Channel.decode_message(raw)
     end

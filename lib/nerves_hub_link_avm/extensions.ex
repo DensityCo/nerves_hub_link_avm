@@ -39,7 +39,8 @@ defmodule NervesHubLinkAVM.Extensions do
           {key, %{mod: mod, state: ext_state}} ->
             case mod.handle_event(event, payload, ext_state) do
               {:reply, reply_event, reply_payload, new_state} ->
-                {:reply, "#{key_str}:#{reply_event}", reply_payload, put_state(extensions, key, new_state)}
+                {:reply, "#{key_str}:#{reply_event}", reply_payload,
+                 put_state(extensions, key, new_state)}
 
               {:noreply, new_state} ->
                 {:noreply, put_state(extensions, key, new_state)}

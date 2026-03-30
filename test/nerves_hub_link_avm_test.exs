@@ -131,8 +131,11 @@ defmodule NervesHubLinkAVMTest do
     test "channel join reply transitions to joined phase", %{state: state, ws: ws} do
       {:noreply, state} = NervesHubLinkAVM.handle_info({:websocket_open, ws}, state)
 
-      reply = Channel.encode_message(state.join_ref, "ref_0", "device", "phx_reply", %{"status" => "ok"})
-      {:noreply, new_state} = NervesHubLinkAVM.handle_info({:websocket, ws, IO.iodata_to_binary(reply)}, state)
+      reply =
+        Channel.encode_message(state.join_ref, "ref_0", "device", "phx_reply", %{"status" => "ok"})
+
+      {:noreply, new_state} =
+        NervesHubLinkAVM.handle_info({:websocket, ws, IO.iodata_to_binary(reply)}, state)
 
       assert new_state.phase == :joined
       assert new_state.heartbeat_ref != nil
@@ -170,7 +173,8 @@ defmodule NervesHubLinkAVMTest do
     end
 
     test "phx_error triggers disconnect and reconnect", %{state: state, ws: ws} do
-      msg = Channel.encode_message("join_0", "ref_1", "device", "phx_error", %{"reason" => "crash"})
+      msg =
+        Channel.encode_message("join_0", "ref_1", "device", "phx_error", %{"reason" => "crash"})
 
       {:noreply, new_state} =
         NervesHubLinkAVM.handle_info({:websocket, ws, IO.iodata_to_binary(msg)}, state)
@@ -239,7 +243,9 @@ defmodule NervesHubLinkAVMTest do
       {:ok, state} = NervesHubLinkAVM.init(default_opts())
       assert_receive :connect
 
-      {:reply, :ok, _state} = NervesHubLinkAVM.handle_call(:confirm_update, {self(), make_ref()}, state)
+      {:reply, :ok, _state} =
+        NervesHubLinkAVM.handle_call(:confirm_update, {self(), make_ref()}, state)
+
       assert_receive :confirm
     end
 
@@ -316,7 +322,9 @@ defmodule NervesHubLinkAVMTest do
       }
 
       msg = Channel.encode_message("join_0", "ref_1", "device", "update", payload)
-      {:noreply, new_state} = NervesHubLinkAVM.handle_info({:websocket, ws, IO.iodata_to_binary(msg)}, state)
+
+      {:noreply, new_state} =
+        NervesHubLinkAVM.handle_info({:websocket, ws, IO.iodata_to_binary(msg)}, state)
 
       assert new_state.phase == :updating
     end
@@ -324,7 +332,9 @@ defmodule NervesHubLinkAVMTest do
     test "update without update_available is ignored", %{state: state, ws: ws} do
       payload = %{"update_available" => false}
       msg = Channel.encode_message("join_0", "ref_1", "device", "update", payload)
-      {:noreply, ^state} = NervesHubLinkAVM.handle_info({:websocket, ws, IO.iodata_to_binary(msg)}, state)
+
+      {:noreply, ^state} =
+        NervesHubLinkAVM.handle_info({:websocket, ws, IO.iodata_to_binary(msg)}, state)
     end
   end
 
@@ -400,7 +410,14 @@ defmodule NervesHubLinkAVMTest do
     test "extensions_join_ref is nil after disconnect" do
       {:ok, state} = NervesHubLinkAVM.init(default_opts())
       assert_receive :connect
-      state = %{state | ws_pid: self(), phase: :joined, join_ref: "join_0", extensions_join_ref: "ext_0"}
+
+      state = %{
+        state
+        | ws_pid: self(),
+          phase: :joined,
+          join_ref: "join_0",
+          extensions_join_ref: "ext_0"
+      }
 
       {:noreply, new_state} =
         NervesHubLinkAVM.handle_info({:websocket_close, self(), {true, 1000, "bye"}}, state)
@@ -428,7 +445,10 @@ defmodule NervesHubLinkAVMTest do
       }
 
       msg = Channel.encode_message("join_0", "ref_1", "device", "update", payload)
-      {:noreply, new_state} = NervesHubLinkAVM.handle_info({:websocket, ws, IO.iodata_to_binary(msg)}, state)
+
+      {:noreply, new_state} =
+        NervesHubLinkAVM.handle_info({:websocket, ws, IO.iodata_to_binary(msg)}, state)
+
       assert new_state.phase == :updating
 
       assert_receive {:DOWN, _ref, :process, _pid, _reason}, 1000
@@ -482,7 +502,9 @@ defmodule NervesHubLinkAVMTest do
       opts = Keyword.put(default_opts(), :extensions, health: MockHealthProvider)
       {:ok, state} = NervesHubLinkAVM.init(opts)
       assert_receive :connect
-      assert %{health: %{mod: NervesHubLinkAVM.Extension.Health, state: _}} = state.config.extensions
+
+      assert %{health: %{mod: NervesHubLinkAVM.Extension.Health, state: _}} =
+               state.config.extensions
     end
   end
 

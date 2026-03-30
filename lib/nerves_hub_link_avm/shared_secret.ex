@@ -27,8 +27,8 @@ defmodule NervesHubLinkAVM.SharedSecret do
   end
 
   defp build_salt(product_key, time_str) do
-    <<"NH1:device-socket:shared-secret:connect\n\nx-nh-alg=", @alg,
-      "\nx-nh-key=", product_key::binary, "\nx-nh-time=", time_str::binary, "\n">>
+    <<"NH1:device-socket:shared-secret:connect\n\nx-nh-alg=", @alg, "\nx-nh-key=",
+      product_key::binary, "\nx-nh-time=", time_str::binary, "\n">>
   end
 
   defp sign(secret, salt, data, signed_at) do
@@ -71,6 +71,7 @@ defmodule NervesHubLinkAVM.SharedSecret do
 
   defp days_in_months(_year, 1), do: 0
   defp days_in_months(_year, 2), do: 31
+
   defp days_in_months(year, m) when m > 2 do
     leap = if rem(year, 4) == 0 and (rem(year, 100) != 0 or rem(year, 400) == 0), do: 1, else: 0
     month_days = {31, 28 + leap, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}
