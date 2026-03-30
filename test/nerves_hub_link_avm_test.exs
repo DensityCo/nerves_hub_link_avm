@@ -482,7 +482,7 @@ defmodule NervesHubLinkAVMTest do
       opts = Keyword.put(default_opts(), :extensions, health: MockHealthProvider)
       {:ok, state} = NervesHubLinkAVM.init(opts)
       assert_receive :connect
-      assert state.config.extensions == %{health: MockHealthProvider}
+      assert %{health: %{mod: NervesHubLinkAVM.Extension.Health, state: _}} = state.config.extensions
     end
   end
 

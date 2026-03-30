@@ -6,7 +6,7 @@ defmodule WebsocketTest do
   describe "websocket client with TCP echo server" do
     test "connects and completes handshake" do
       {port, server_ref} = start_ws_server()
-      pid = :websocket.new(~c"ws://localhost:#{port}/test")
+      {:ok, pid} = :websocket.new(~c"ws://localhost:#{port}/test")
 
       assert is_pid(pid)
       assert_receive {:websocket_open, ^pid}, 2000
@@ -17,7 +17,7 @@ defmodule WebsocketTest do
 
     test "sends and receives utf8 messages" do
       {port, server_ref} = start_ws_server()
-      pid = :websocket.new(~c"ws://localhost:#{port}/test")
+      {:ok, pid} = :websocket.new(~c"ws://localhost:#{port}/test")
       assert_receive {:websocket_open, ^pid}, 2000
 
       :websocket.send_utf8(pid, <<"hello websocket">>)
@@ -30,7 +30,7 @@ defmodule WebsocketTest do
 
     test "sends and receives binary messages" do
       {port, server_ref} = start_ws_server()
-      pid = :websocket.new(~c"ws://localhost:#{port}/test")
+      {:ok, pid} = :websocket.new(~c"ws://localhost:#{port}/test")
       assert_receive {:websocket_open, ^pid}, 2000
 
       :websocket.send_binary(pid, <<1, 2, 3, 4, 5>>)
@@ -42,7 +42,7 @@ defmodule WebsocketTest do
 
     test "sends and receives multiple messages" do
       {port, server_ref} = start_ws_server()
-      pid = :websocket.new(~c"ws://localhost:#{port}/test")
+      {:ok, pid} = :websocket.new(~c"ws://localhost:#{port}/test")
       assert_receive {:websocket_open, ^pid}, 2000
 
       for i <- 1..5 do
@@ -56,7 +56,7 @@ defmodule WebsocketTest do
 
     test "handles server-initiated close" do
       {port, server_ref} = start_ws_server()
-      pid = :websocket.new(~c"ws://localhost:#{port}/test")
+      {:ok, pid} = :websocket.new(~c"ws://localhost:#{port}/test")
       assert_receive {:websocket_open, ^pid}, 2000
 
       # Tell server to send close frame
@@ -69,7 +69,7 @@ defmodule WebsocketTest do
 
     test "responds to pings with pongs" do
       {port, server_ref} = start_ws_server()
-      pid = :websocket.new(~c"ws://localhost:#{port}/test")
+      {:ok, pid} = :websocket.new(~c"ws://localhost:#{port}/test")
       assert_receive {:websocket_open, ^pid}, 2000
 
       # Tell server to send a ping
@@ -83,7 +83,7 @@ defmodule WebsocketTest do
 
     test "controlling_process transfers message delivery" do
       {port, server_ref} = start_ws_server()
-      pid = :websocket.new(~c"ws://localhost:#{port}/test")
+      {:ok, pid} = :websocket.new(~c"ws://localhost:#{port}/test")
       assert_receive {:websocket_open, ^pid}, 2000
 
       test_pid = self()

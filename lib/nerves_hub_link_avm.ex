@@ -6,6 +6,7 @@ defmodule NervesHubLinkAVM do
   alias NervesHubLinkAVM.Channel
   alias NervesHubLinkAVM.Client
   alias NervesHubLinkAVM.Configurator
+  alias NervesHubLinkAVM.Extensions
   alias NervesHubLinkAVM.UpdateManager
 
   @heartbeat_interval 30_000
@@ -114,7 +115,7 @@ defmodule NervesHubLinkAVM do
 
     IO.puts("NervesHubLinkAVM: connecting to #{config.url}")
 
-    case open_websocket(config.url, config.ws_opts) do
+    case :websocket.new(:erlang.binary_to_list(config.url), config.ws_opts) do
       {:ok, ws} ->
         {:noreply, %{state | ws_pid: ws}}
 
@@ -171,12 +172,7 @@ defmodule NervesHubLinkAVM do
     ref = Process.send_after(self(), :heartbeat, @heartbeat_interval)
     state = %{state | phase: :joined, heartbeat_ref: ref}
 
-    state =
-      if state.config.extensions != %{},
-        do: join_extensions(state),
-        else: state
-
-    {:noreply, state}
+    {:noreply, maybe_join_extensions(state)}
   end
 
   defp handle_channel_message(
@@ -214,11 +210,7 @@ defmodule NervesHubLinkAVM do
   # -- Extensions --
 
   defp handle_channel_message({_join_ref, _ref, "device", "extensions:get", _payload}, state) do
-    if state.config.extensions != %{} do
-      {:noreply, join_extensions(state)}
-    else
-      {:noreply, state}
-    end
+    {:noreply, maybe_join_extensions(state)}
   end
 
   defp handle_channel_message(
@@ -228,23 +220,21 @@ defmodule NervesHubLinkAVM do
        when is_list(attach_list) do
     IO.puts("NervesHubLinkAVM: extensions joined, attaching: #{inspect(attach_list)}")
 
-    Enum.each(attach_list, fn ext ->
+    Enum.each(Extensions.attachable(attach_list, state.config.extensions), fn ext ->
       send_extensions_message(state, "#{ext}:attached", %{})
     end)
 
     {:noreply, state}
   end
 
-  defp handle_channel_message({_join_ref, _ref, "extensions", "health:check", _payload}, state) do
-    case Map.get(state.config.extensions, :health) do
-      nil ->
-        {:noreply, state}
+  defp handle_channel_message({_join_ref, _ref, "extensions", scoped_event, payload}, state) do
+    case Extensions.handle_event(scoped_event, payload, state.config.extensions) do
+      {:reply, event, reply_payload, updated_extensions} ->
+        send_extensions_message(state, event, reply_payload)
+        {:noreply, update_extensions(state, updated_extensions)}
 
-      provider ->
-        metrics = provider.health_check()
-        payload = %{"value" => %{"metrics" => metrics, "timestamp" => iso8601_now()}}
-        send_extensions_message(state, "health:report", payload)
-        {:noreply, state}
+      {:noreply, updated_extensions} ->
+        {:noreply, update_extensions(state, updated_extensions)}
     end
   end
 
@@ -286,41 +276,44 @@ defmodule NervesHubLinkAVM do
         }
       })
 
-    msg = Channel.encode_message(join_ref, "ref_#{ref}", "device", "phx_join", payload)
-    :websocket.send_utf8(state.ws_pid, :erlang.iolist_to_binary(msg))
+    send_ws(state, join_ref, "device", "phx_join", payload)
     %{state | join_ref: join_ref}
   end
 
   defp send_heartbeat(state) do
     {ref, state} = next_ref(state)
-    msg = Channel.encode_message(nil, "hb_#{ref}", "phoenix", "heartbeat", %{})
-    :websocket.send_utf8(state.ws_pid, :erlang.iolist_to_binary(msg))
+    send_ws(state, nil, "phoenix", "heartbeat", %{}, "hb_#{ref}")
     state
   end
 
   defp send_channel_message(state, event, payload) do
-    {ref, _state} = next_ref(state)
-    msg = Channel.encode_message(state.join_ref, "ref_#{ref}", "device", event, payload)
-    :websocket.send_utf8(state.ws_pid, :erlang.iolist_to_binary(msg))
+    send_ws(state, state.join_ref, "device", event, payload)
+  end
+
+  defp maybe_join_extensions(state) do
+    if Extensions.any?(state.config.extensions), do: join_extensions(state), else: state
   end
 
   defp join_extensions(state) do
     {ref, state} = next_ref(state)
     join_ref = "ext_#{ref}"
-
-    versions =
-      state.config.extensions
-      |> Map.keys()
-      |> Enum.reduce(%{}, fn key, acc -> Map.put(acc, :erlang.atom_to_binary(key), "0.0.1") end)
-
-    msg = Channel.encode_message(join_ref, "ref_#{ref}", "extensions", "phx_join", versions)
-    :websocket.send_utf8(state.ws_pid, :erlang.iolist_to_binary(msg))
+    versions = Extensions.versions(state.config.extensions)
+    send_ws(state, join_ref, "extensions", "phx_join", versions)
     %{state | extensions_join_ref: join_ref}
   end
 
   defp send_extensions_message(state, event, payload) do
+    send_ws(state, state.extensions_join_ref, "extensions", event, payload)
+  end
+
+  defp update_extensions(state, updated) do
+    %{state | config: %{state.config | extensions: updated}}
+  end
+
+  defp send_ws(state, join_ref, topic, event, payload, ref_str \\ nil) do
     {ref, _state} = next_ref(state)
-    msg = Channel.encode_message(state.extensions_join_ref, "ref_#{ref}", "extensions", event, payload)
+    ref_str = ref_str || "ref_#{ref}"
+    msg = Channel.encode_message(join_ref, ref_str, topic, event, payload)
     :websocket.send_utf8(state.ws_pid, :erlang.iolist_to_binary(msg))
   end
 
@@ -329,14 +322,6 @@ defmodule NervesHubLinkAVM do
   end
 
   # -- Connection management --
-
-  defp open_websocket(url, opts) do
-    {:ok, :websocket.new(:erlang.binary_to_list(url), opts)}
-  rescue
-    e -> {:error, e}
-  catch
-    _, reason -> {:error, reason}
-  end
 
   defp disconnect(state) do
     cancel_timer(state.heartbeat_ref)
@@ -353,13 +338,5 @@ defmodule NervesHubLinkAVM do
     ref = Process.send_after(self(), :connect, backoff)
     new_backoff = min(backoff * 2, @max_backoff)
     %{state | phase: :disconnected, reconnect_ref: ref, backoff: new_backoff}
-  end
-
-  defp iso8601_now do
-    seconds = :erlang.system_time(:second)
-    {{y, mo, d}, {h, mi, s}} = :calendar.system_time_to_universal_time(seconds, :second)
-
-    :io_lib.format("~4..0B-~2..0B-~2..0BT~2..0B:~2..0B:~2..0BZ", [y, mo, d, h, mi, s])
-    |> :erlang.iolist_to_binary()
   end
 end

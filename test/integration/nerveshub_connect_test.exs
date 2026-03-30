@@ -55,7 +55,7 @@ defmodule NervesHubLinkAVM.Integration.ConnectTest do
 
   defp connect do
     url = ws_url()
-    pid = :websocket.new(String.to_charlist(url), ws_opts())
+    {:ok, pid} = :websocket.new(String.to_charlist(url), ws_opts())
     {url, pid}
   end
 
@@ -64,7 +64,7 @@ defmodule NervesHubLinkAVM.Integration.ConnectTest do
       {url, pid} = connect()
       IO.puts("\n  Connecting to #{url}")
 
-      assert is_pid(pid), "websocket.new should return a pid"
+      assert is_pid(pid), "websocket.new should return {:ok, pid}"
 
       assert_receive {:websocket_open, ^pid}, 5000,
         "Expected websocket_open within 5s — is NervesHub running at #{url}?"

@@ -59,8 +59,10 @@ new(URL) ->
 
 new(URL, Opts) ->
     ControllingProcess = self(),
-    {ok, Pid} = gen_server:start_link(?MODULE, {connect, ControllingProcess, URL, Opts}, []),
-    Pid.
+    case gen_server:start_link(?MODULE, {connect, ControllingProcess, URL, Opts}, []) of
+        {ok, Pid} -> {ok, Pid};
+        {error, _} = Err -> Err
+    end.
 
 send_binary(WebSocket, Data) ->
     gen_server:cast(WebSocket, {send, ?OPCODE_BINARY, Data}).

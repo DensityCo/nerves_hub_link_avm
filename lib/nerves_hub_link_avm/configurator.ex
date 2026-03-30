@@ -4,6 +4,7 @@ defmodule NervesHubLinkAVM.Configurator do
   # Builds runtime configuration from start_link opts.
   # Handles auth method selection, SSL options, and WebSocket URL construction.
 
+  alias NervesHubLinkAVM.Extensions
   alias NervesHubLinkAVM.SharedSecret
 
   defstruct [
@@ -43,7 +44,7 @@ defmodule NervesHubLinkAVM.Configurator do
       client: Keyword.get(opts, :client, NervesHubLinkAVM.Client.Default),
       fwup_writer: Keyword.fetch!(opts, :fwup_writer),
       http_client: Keyword.get(opts, :http_client, NervesHubLinkAVM.HTTPClient),
-      extensions: Map.new(Keyword.get(opts, :extensions, []))
+      extensions: parse_and_init_extensions(Keyword.get(opts, :extensions, []))
     }
   end
 
@@ -92,6 +93,28 @@ defmodule NervesHubLinkAVM.Configurator do
   end
 
   defp build_auth_headers(_auth), do: []
+
+  # -- Extensions --
+
+  @known_extensions %{
+    health: NervesHubLinkAVM.Extension.Health
+  }
+
+  defp parse_and_init_extensions([]), do: %{}
+
+  defp parse_and_init_extensions(config) do
+    parsed =
+      Enum.map(config, fn
+        {key, {mod, opts}} -> {key, {mod, opts}}
+        {key, provider} when is_atom(provider) ->
+          case Map.get(@known_extensions, key) do
+            nil -> raise ArgumentError, "unknown extension shorthand: #{key}"
+            mod -> {key, {mod, [provider: provider]}}
+          end
+      end)
+
+    Extensions.init(parsed)
+  end
 
   # -- Validation --
 

@@ -146,7 +146,7 @@ defmodule NervesHubLinkAVM.HTTPClient do
   def process_stream_responses([], _ref, acc, _fun, redirect), do: {:continue, acc, redirect}
 
   def process_stream_responses([{:status, ref, status} | rest], ref, acc, fun, _redirect)
-       when status in [301, 302, 303, 307] do
+      when status in [301, 302, 303, 307] do
     process_stream_responses(rest, ref, acc, fun, :pending_redirect)
   end
 
@@ -155,22 +155,22 @@ defmodule NervesHubLinkAVM.HTTPClient do
   end
 
   def process_stream_responses(
-         [{:header, ref, {"Location", location}} | _rest],
-         ref,
-         _acc,
-         _fun,
-         :pending_redirect
-       ) do
+        [{:header, ref, {"Location", location}} | _rest],
+        ref,
+        _acc,
+        _fun,
+        :pending_redirect
+      ) do
     {:redirect, location}
   end
 
   def process_stream_responses(
-         [{:header, ref, {"location", location}} | _rest],
-         ref,
-         _acc,
-         _fun,
-         :pending_redirect
-       ) do
+        [{:header, ref, {"location", location}} | _rest],
+        ref,
+        _acc,
+        _fun,
+        :pending_redirect
+      ) do
     {:redirect, location}
   end
 
