@@ -7,10 +7,13 @@ NervesHubLinkAVM connects AtomVM-powered microcontrollers (ESP32, etc.) to a Ner
 ## Features
 
 - WebSocket connection to NervesHub with Phoenix channel protocol (v2.0.0)
-- Mutual TLS (mTLS) device authentication with client certificates
+- Mutual TLS (mTLS) or shared secret (HMAC) authentication
 - OTA firmware updates with streaming download and SHA256 verification
+- Pluggable firmware writer for different hardware platforms
 - Update lifecycle status reporting (received, downloading, updating, complete, failed)
+- Update decision control (apply, ignore, reschedule)
 - Firmware validation tracking across reboots
+- Pluggable extension system (health reporting, etc.)
 - Device identification support (e.g., blink LED on server request)
 - Automatic reconnection with exponential backoff
 - Heartbeat keep-alive
@@ -52,13 +55,26 @@ NervesHubLinkAVM.start_link(
     "version" => "1.0.0",
     "platform" => "esp32"
   },
-  device_handler: MyApp.DeviceHandler
+  client: MyApp.Client,
+  fwup_writer: MyApp.ESP32Writer
 )
 ```
 
-Required firmware metadata keys: `uuid`, `product`, `architecture`, `version`, `platform`. The client validates these at startup and raises if any are missing.
+Or with shared secret authentication:
 
-An optional `:name` can be passed to run multiple instances.
+```elixir
+NervesHubLinkAVM.start_link(
+  host: "your-nerveshub-server.com",
+  product_key: "nhp_...",
+  product_secret: "...",
+  identifier: "my-device-001",
+  firmware_meta: %{ ... },
+  client: MyApp.Client,
+  fwup_writer: MyApp.ESP32Writer
+)
+```
+
+Required firmware metadata keys: `uuid`, `product`, `architecture`, `version`, `platform`.
 
 ### Public API
 
@@ -74,88 +90,150 @@ NervesHubLinkAVM.reconnect(MyDevice)
 NervesHubLinkAVM.confirm_update(MyDevice)
 ```
 
-### Implementing a device handler
+### Client behaviour
 
-Create a module that implements the `NervesHubLinkAVM.DeviceHandler` behaviour:
+The `Client` controls update decisions, progress reporting, and device actions. All callbacks are optional with sensible defaults (auto-apply updates, no-op for everything else).
 
 ```elixir
-defmodule MyApp.DeviceHandler do
-  @behaviour NervesHubLinkAVM.DeviceHandler
-
-  # Firmware update callbacks (fwup_*)
+defmodule MyApp.Client do
+  @behaviour NervesHubLinkAVM.Client
 
   @impl true
-  def fwup_begin(size, meta) do
-    # Called before streaming. Initialize state for the update.
-    {:ok, %{size: size, meta: meta}}
+  def update_available(_meta), do: :apply  # or :ignore or {:reschedule, 60_000}
+
+  @impl true
+  def fwup_progress(percent), do: IO.puts("Progress: #{percent}%")
+
+  @impl true
+  def fwup_error(error), do: IO.puts("Error: #{inspect(error)}")
+
+  @impl true
+  def reboot, do: :ok
+
+  @impl true
+  def identify, do: :ok
+
+  @impl true
+  def handle_connected, do: :ok
+
+  @impl true
+  def handle_disconnected, do: :ok
+end
+```
+
+A default implementation (`NervesHubLinkAVM.Client.Default`) is used if no `:client` is provided.
+
+### FwupWriter behaviour
+
+The `FwupWriter` handles hardware-specific firmware write operations. Implement this for your target platform.
+
+```elixir
+defmodule MyApp.ESP32Writer do
+  @behaviour NervesHubLinkAVM.FwupWriter
+
+  @impl true
+  def fwup_begin(size, _meta) do
+    # Erase inactive partition, allocate buffers
+    {:ok, %{offset: 0, size: size}}
   end
 
   @impl true
   def fwup_chunk(data, state) do
-    # Called for each downloaded chunk. Write to flash, etc.
-    {:ok, state}
+    # Write chunk to flash
+    {:ok, %{state | offset: state.offset + byte_size(data)}}
   end
 
   @impl true
-  def fwup_finish(state) do
-    # Called after SHA256 verification passes. Activate firmware slot, reboot.
+  def fwup_finish(_state) do
+    # Activate new slot, reboot
     :ok
   end
 
   @impl true
-  def fwup_abort(state) do
-    # Called on error or SHA256 mismatch. Clean up partial writes.
+  def fwup_abort(_state) do
+    # Clean up partial writes
     :ok
   end
 
-  # Optional callbacks:
+  # Optional: confirm firmware on first boot
+  @impl true
+  def fwup_confirm, do: :ok
+end
+```
+
+### Extensions
+
+Extensions are opt-in and pluggable. Currently supported: health reporting.
+
+```elixir
+NervesHubLinkAVM.start_link(
+  ...
+  extensions: [health: MyApp.HealthProvider]
+)
+```
+
+Implement the `HealthProvider` behaviour:
+
+```elixir
+defmodule MyApp.HealthProvider do
+  @behaviour NervesHubLinkAVM.HealthProvider
 
   @impl true
-  def fwup_confirm do
-    # Called via confirm_update/0. Commit firmware on first boot.
-    :ok
-  end
-
-  @impl true
-  def handle_identify do
-    # Called when the server requests device identification.
-    # Blink an LED, beep, etc.
-    :ok
+  def health_check do
+    %{"cpu_temp" => 42.5, "mem_used_percent" => 65}
   end
 end
 ```
 
+Custom extensions can implement the `NervesHubLinkAVM.Extension` behaviour directly.
+
 ### Update lifecycle
 
-When the server pushes a firmware update, the client:
+When the server pushes a firmware update:
 
-1. Reports `"received"` status to the server
-2. Calls `fwup_begin/2` with the firmware size and metadata
-3. Reports `"downloading"` and streams chunks through `fwup_chunk/2`
+1. `Client.update_available/1` is called -- returns `:apply`, `:ignore`, or `{:reschedule, ms}`
+2. If `:apply`, calls `FwupWriter.fwup_begin/2`
+3. Reports `"downloading"` and streams chunks through `FwupWriter.fwup_chunk/2`
 4. Verifies SHA256 hash of the downloaded firmware
-5. Reports `"updating"` and calls `fwup_finish/1`
+5. Reports `"updating"` and calls `FwupWriter.fwup_finish/1`
 6. Reports `"fwup_complete"` on success
 
-If SHA256 verification fails or any step errors, `fwup_abort/1` is called and `"update_failed"` is reported.
+If SHA256 verification fails or any step errors, `FwupWriter.fwup_abort/1` is called and `"update_failed"` is reported.
 
 ### Channel messages handled
 
 | Server Event | Client Action |
 |---|---|
-| `update` | Starts firmware download pipeline |
-| `reboot` | Sends `"rebooting"` acknowledgment |
-| `identify` | Calls `handle_identify/0` if implemented |
+| `update` | Runs update pipeline via UpdateManager |
+| `reboot` | Calls `Client.reboot/0` |
+| `identify` | Calls `Client.identify/0` |
+| `extensions:get` | Joins extensions channel if configured |
+| `health:check` | Calls `HealthProvider.health_check/0` |
 
 ## Architecture
 
 ```
-NervesHubLinkAVM (GenServer)
+NervesHubLinkAVM (GenServer)    -- connection lifecycle, message dispatch
   |
-  |-- Channel          JSON encode/decode for Phoenix channel protocol
-  |-- HTTPClient       Firmware download via AtomVM's ahttp_client
-  |-- DeviceHandler    Behaviour for device callbacks
+  |-- Client (behaviour)        -- update decisions, progress, lifecycle hooks
+  |   +-- Client.Default        -- auto-apply, log everything
   |
-  +-- websocket.erl   WebSocket client (TCP + TLS) with RFC 6455 framing
+  |-- FwupWriter (behaviour)    -- hardware-specific firmware writes
+  |
+  |-- Configurator              -- builds config from opts (auth, URL, SSL)
+  |-- UpdateManager             -- orchestrates Client + FwupWriter + Downloader
+  |-- Downloader                -- HTTP streaming + SHA256 verification
+  |
+  |-- Extension (behaviour)     -- pluggable extension interface
+  |   +-- Extension.Health      -- wraps HealthProvider for health reporting
+  |-- Extensions                -- routes extension events by key prefix
+  |
+  |-- SharedSecret              -- HMAC signing for shared secret auth
+  |-- Channel                   -- Phoenix channel protocol codec
+  |-- HTTPClient                -- HTTP layer (AtomVM ahttp_client)
+  |-- JSON                      -- JSON codec (AtomVM compatible)
+  |
+  +-- websocket.erl             -- WebSocket client (TCP + TLS) RFC 6455
 ```
 
 ## Author

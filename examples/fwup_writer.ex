@@ -1,10 +1,8 @@
-defmodule MyApp.DeviceHandler do
-  @behaviour NervesHubLinkAVM.DeviceHandler
+defmodule MyApp.ESP32Writer do
+  @behaviour NervesHubLinkAVM.FwupWriter
 
-  # -- Firmware update callbacks --
-
-  # Called before firmware streaming starts.
-  # Initialize whatever state you need for writing to flash.
+  # Prepare for firmware write.
+  # Erase the inactive partition, allocate buffers, etc.
   @impl true
   def fwup_begin(size, _meta) do
     IO.puts("Starting firmware update: #{size} bytes")
@@ -13,8 +11,7 @@ defmodule MyApp.DeviceHandler do
     {:ok, %{offset: 0, size: size}}
   end
 
-  # Called for each downloaded chunk.
-  # Write the chunk to flash at the current offset.
+  # Write a chunk of firmware data at the current position.
   @impl true
   def fwup_chunk(data, state) do
     # Example: write chunk to flash partition
@@ -23,8 +20,7 @@ defmodule MyApp.DeviceHandler do
     {:ok, %{state | offset: new_offset}}
   end
 
-  # Called after all chunks have been streamed and SHA256 verified.
-  # Activate the new firmware slot and reboot.
+  # Finalize the write. Activate the new firmware slot and reboot.
   @impl true
   def fwup_finish(_state) do
     IO.puts("Firmware verified, activating and rebooting")
@@ -34,33 +30,21 @@ defmodule MyApp.DeviceHandler do
     :ok
   end
 
-  # Called on any error (download failure, SHA256 mismatch, etc).
-  # Clean up any partial writes.
+  # Clean up after a failed update. Roll back partial writes.
   @impl true
   def fwup_abort(_state) do
     IO.puts("Firmware update aborted, cleaning up")
     :ok
   end
 
-  # Optional: called via NervesHubLinkAVM.confirm_update/0
-  # on first boot after an update. Prevents automatic rollback.
+  # Optional: confirm firmware on first boot.
+  # Called via NervesHubLinkAVM.confirm_update/0.
+  # Prevents automatic rollback.
   @impl true
   def fwup_confirm do
     IO.puts("Firmware confirmed, marking as valid")
     # Example: mark the current slot as valid
     # :boot_env_nif.mark_valid()
-    :ok
-  end
-
-  # -- Device callbacks --
-
-  # Optional: called when the server requests device identification.
-  # Do something observable like blink an LED.
-  @impl true
-  def handle_identify do
-    IO.puts("Identify requested!")
-    # Example: blink the status LED
-    # MyApp.Led.blink(:identify)
     :ok
   end
 end
