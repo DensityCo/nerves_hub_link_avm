@@ -73,7 +73,7 @@ defmodule NervesHubLinkAVM.UpdateLifecycleTest do
   # -- Test handlers --
 
   defmodule TestHandler do
-    @behaviour NervesHubLinkAVM.DeviceHandler
+    @behaviour NervesHubLinkAVM.FwupWriter
 
     def fwup_begin(size, meta) do
       send(:lifecycle_test, {:begin, size, meta})
@@ -94,7 +94,7 @@ defmodule NervesHubLinkAVM.UpdateLifecycleTest do
   end
 
   defmodule FailBeginHandler do
-    @behaviour NervesHubLinkAVM.DeviceHandler
+    @behaviour NervesHubLinkAVM.FwupWriter
 
     def fwup_begin(_, _), do: {:error, :no_space}
     def fwup_chunk(_, s), do: {:ok, s}
@@ -116,7 +116,7 @@ defmodule NervesHubLinkAVM.UpdateLifecycleTest do
         "version" => "1.0.0",
         "platform" => "host"
       },
-      device_handler: handler,
+      fwup_writer: handler,
       http_client: MockHTTP
     ]
   end

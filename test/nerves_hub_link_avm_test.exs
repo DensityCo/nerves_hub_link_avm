@@ -3,8 +3,8 @@ defmodule NervesHubLinkAVMTest do
 
   alias NervesHubLinkAVM.Channel
 
-  defmodule MockHandler do
-    @behaviour NervesHubLinkAVM.DeviceHandler
+  defmodule MockWriter do
+    @behaviour NervesHubLinkAVM.FwupWriter
 
     @impl true
     def fwup_begin(size, meta) do
@@ -34,12 +34,27 @@ defmodule NervesHubLinkAVMTest do
       send(:test_proc, {:abort, state})
       :ok
     end
+  end
+
+  defmodule MockClient do
+    @behaviour NervesHubLinkAVM.Client
 
     @impl true
-    def handle_identify do
+    def identify do
       send(:test_proc, :identify)
       :ok
     end
+
+    @impl true
+    def reboot do
+      send(:test_proc, :reboot)
+      :ok
+    end
+
+    @impl true
+    def handle_connected, do: :ok
+    @impl true
+    def handle_disconnected, do: :ok
   end
 
   defp default_opts do
@@ -54,42 +69,24 @@ defmodule NervesHubLinkAVMTest do
         "version" => "1.0.0",
         "platform" => "host"
       },
-      device_handler: MockHandler
+      fwup_writer: MockWriter,
+      client: MockClient
     ]
   end
 
   describe "init/1" do
     test "initializes state from opts" do
-      # We intercept the :connect message to prevent actual connection attempts
       {:ok, state} = NervesHubLinkAVM.init(default_opts())
 
-      assert state.host == "hub.example.com"
-      assert state.port == 443
-      assert state.ssl == true
-      assert state.auth == {:certificate, "fake_cert", "fake_key"}
-      assert state.firmware_meta["uuid"] == "test-uuid"
-      assert state.firmware_meta["platform"] == "host"
-      assert state.device_handler == MockHandler
+      assert state.config.auth == {:certificate, "fake_cert", "fake_key"}
+      assert state.config.firmware_meta["uuid"] == "test-uuid"
+      assert state.config.firmware_meta["platform"] == "host"
+      assert state.config.fwup_writer == MockWriter
+      assert state.config.client == MockClient
       assert state.msg_ref == 0
       assert state.phase == :disconnected
       assert state.backoff == 1_000
 
-      # init sends :connect to self
-      assert_receive :connect
-    end
-
-    test "uses default port 443 and ssl true" do
-      {:ok, state} = NervesHubLinkAVM.init(default_opts())
-      assert state.port == 443
-      assert state.ssl == true
-      assert_receive :connect
-    end
-
-    test "allows overriding port and ssl" do
-      opts = Keyword.merge(default_opts(), port: 4000, ssl: false)
-      {:ok, state} = NervesHubLinkAVM.init(opts)
-      assert state.port == 4000
-      assert state.ssl == false
       assert_receive :connect
     end
 
@@ -105,6 +102,13 @@ defmodule NervesHubLinkAVMTest do
       assert_raise ArgumentError, ~r/missing required firmware metadata/, fn ->
         NervesHubLinkAVM.init(opts)
       end
+    end
+
+    test "defaults client to Client.Default" do
+      opts = Keyword.delete(default_opts(), :client)
+      {:ok, state} = NervesHubLinkAVM.init(opts)
+      assert_receive :connect
+      assert state.config.client == NervesHubLinkAVM.Client.Default
     end
   end
 
@@ -125,10 +129,8 @@ defmodule NervesHubLinkAVMTest do
     end
 
     test "channel join reply transitions to joined phase", %{state: state, ws: ws} do
-      # First do the join
       {:noreply, state} = NervesHubLinkAVM.handle_info({:websocket_open, ws}, state)
 
-      # Simulate server replying with join success
       reply = Channel.encode_message(state.join_ref, "ref_0", "device", "phx_reply", %{"status" => "ok"})
       {:noreply, new_state} = NervesHubLinkAVM.handle_info({:websocket, ws, IO.iodata_to_binary(reply)}, state)
 
@@ -150,9 +152,7 @@ defmodule NervesHubLinkAVMTest do
       {:noreply, ^state} = NervesHubLinkAVM.handle_info({:websocket, unknown_pid, "data"}, state)
     end
 
-    test "malformed JSON raises (json module doesn't return errors)", %{state: state, ws: ws} do
-      # :json.decode raises on invalid input — this is expected behavior
-      # In production the websocket layer ensures only valid frames arrive
+    test "malformed JSON raises", %{state: state, ws: ws} do
       assert_raise MatchError, fn ->
         NervesHubLinkAVM.handle_info({:websocket, ws, "{bad json"}, state)
       end
@@ -188,13 +188,22 @@ defmodule NervesHubLinkAVMTest do
       assert new_state.phase == :disconnected
     end
 
-    test "identify calls handler's handle_identify", %{state: state, ws: ws} do
+    test "identify calls client's identify", %{state: state, ws: ws} do
       msg = Channel.encode_message("join_0", "ref_1", "device", "identify", %{})
 
       {:noreply, ^state} =
         NervesHubLinkAVM.handle_info({:websocket, ws, IO.iodata_to_binary(msg)}, state)
 
       assert_receive :identify
+    end
+
+    test "reboot calls client's reboot", %{state: state, ws: ws} do
+      msg = Channel.encode_message("join_0", "ref_1", "device", "reboot", %{})
+
+      {:noreply, ^state} =
+        NervesHubLinkAVM.handle_info({:websocket, ws, IO.iodata_to_binary(msg)}, state)
+
+      assert_receive :reboot
     end
 
     test "unknown channel message is handled gracefully", %{state: state, ws: ws} do
@@ -225,7 +234,7 @@ defmodule NervesHubLinkAVMTest do
   end
 
   describe "handle_call/3 - confirm_update" do
-    test "calls handler's fwup_confirm when implemented" do
+    test "calls writer's fwup_confirm when implemented" do
       Process.register(self(), :test_proc)
       {:ok, state} = NervesHubLinkAVM.init(default_opts())
       assert_receive :connect
@@ -247,9 +256,9 @@ defmodule NervesHubLinkAVMTest do
       assert_receive :confirm
     end
 
-    test "does not set firmware_validated on handler error" do
-      defmodule FailConfirmHandler do
-        @behaviour NervesHubLinkAVM.DeviceHandler
+    test "does not set firmware_validated on writer error" do
+      defmodule FailConfirmWriter do
+        @behaviour NervesHubLinkAVM.FwupWriter
         def fwup_begin(_, _), do: {:ok, %{}}
         def fwup_chunk(_, s), do: {:ok, s}
         def fwup_finish(_), do: :ok
@@ -257,7 +266,7 @@ defmodule NervesHubLinkAVMTest do
         def fwup_abort(_), do: :ok
       end
 
-      opts = Keyword.put(default_opts(), :device_handler, FailConfirmHandler)
+      opts = Keyword.put(default_opts(), :fwup_writer, FailConfirmWriter)
       {:ok, state} = NervesHubLinkAVM.init(opts)
       assert_receive :connect
       state = %{state | ws_pid: self(), phase: :joined, join_ref: "join_0"}
@@ -267,9 +276,21 @@ defmodule NervesHubLinkAVMTest do
 
       assert new_state.firmware_validated == false
     end
+
+    test "sets firmware_validated when disconnected without crash" do
+      Process.register(self(), :test_proc)
+      {:ok, state} = NervesHubLinkAVM.init(default_opts())
+      assert_receive :connect
+
+      {:reply, :ok, new_state} =
+        NervesHubLinkAVM.handle_call(:confirm_update, {self(), make_ref()}, state)
+
+      assert new_state.firmware_validated == true
+      assert_receive :confirm
+    end
   end
 
-  describe "init/1 - firmware_validated default" do
+  describe "firmware_validated default" do
     test "firmware_validated defaults to false" do
       {:ok, state} = NervesHubLinkAVM.init(default_opts())
       assert_receive :connect
@@ -287,7 +308,7 @@ defmodule NervesHubLinkAVMTest do
       {:ok, state: state, ws: fake_ws}
     end
 
-    test "update with update_available sends received status", %{state: state, ws: ws} do
+    test "update with update_available transitions to updating", %{state: state, ws: ws} do
       payload = %{
         "update_available" => true,
         "firmware_url" => "https://example.com/fw.bin",
@@ -307,23 +328,14 @@ defmodule NervesHubLinkAVMTest do
     end
   end
 
-  describe "build_ws_opts/1" do
-    test "returns ssl_opts when ssl is true" do
+  describe "auth configuration" do
+    test "certificate auth from opts" do
       {:ok, state} = NervesHubLinkAVM.init(default_opts())
       assert_receive :connect
-
-      assert state.ssl == true
-      assert state.auth == {:certificate, "fake_cert", "fake_key"}
+      assert state.config.auth == {:certificate, "fake_cert", "fake_key"}
     end
 
-    test "ssl false with cert auth" do
-      opts = Keyword.merge(default_opts(), ssl: false)
-      {:ok, state} = NervesHubLinkAVM.init(opts)
-      assert_receive :connect
-      assert state.ssl == false
-    end
-
-    test "shared secret auth stores auth tuple" do
+    test "shared secret auth from opts" do
       opts = [
         host: "hub.example.com",
         product_key: "nhp_test123",
@@ -336,12 +348,12 @@ defmodule NervesHubLinkAVMTest do
           "version" => "1.0.0",
           "platform" => "host"
         },
-        device_handler: MockHandler
+        fwup_writer: MockWriter
       ]
 
       {:ok, state} = NervesHubLinkAVM.init(opts)
       assert_receive :connect
-      assert {:shared_secret, "nhp_test123", "secret456", "device-001"} = state.auth
+      assert {:shared_secret, "nhp_test123", "secret456", "device-001"} = state.config.auth
     end
 
     test "raises when no auth method provided" do
@@ -354,7 +366,7 @@ defmodule NervesHubLinkAVMTest do
           "version" => "1.0.0",
           "platform" => "host"
         },
-        device_handler: MockHandler
+        fwup_writer: MockWriter
       ]
 
       assert_raise ArgumentError, ~r/must provide either/, fn ->
@@ -363,39 +375,10 @@ defmodule NervesHubLinkAVMTest do
     end
   end
 
-  describe "handle_cast/2 - reconnect" do
-    test "resets backoff and schedules connect" do
-      {:ok, state} = NervesHubLinkAVM.init(default_opts())
-      assert_receive :connect
-      state = %{state | backoff: 16_000, phase: :joined}
-
-      {:noreply, new_state} = NervesHubLinkAVM.handle_cast(:reconnect, state)
-      assert new_state.backoff == 1_000
-      assert new_state.phase == :disconnected
-      assert_receive :connect
-    end
-  end
-
-  describe "confirm_update while disconnected" do
-    test "sets firmware_validated but does not crash when ws_pid is nil" do
-      Process.register(self(), :test_proc)
-      {:ok, state} = NervesHubLinkAVM.init(default_opts())
-      assert_receive :connect
-      # ws_pid is nil, phase is :disconnected
-
-      {:reply, :ok, new_state} =
-        NervesHubLinkAVM.handle_call(:confirm_update, {self(), make_ref()}, state)
-
-      assert new_state.firmware_validated == true
-      assert_receive :confirm
-    end
-  end
-
   describe "send_event while disconnected" do
     test "send_event cast is dropped when ws_pid is nil" do
       {:ok, state} = NervesHubLinkAVM.init(default_opts())
       assert_receive :connect
-      # ws_pid is nil
 
       {:noreply, ^state} =
         NervesHubLinkAVM.handle_cast({:send_event, "status_update", %{"status" => "test"}}, state)
@@ -448,10 +431,8 @@ defmodule NervesHubLinkAVMTest do
       {:noreply, new_state} = NervesHubLinkAVM.handle_info({:websocket, ws, IO.iodata_to_binary(msg)}, state)
       assert new_state.phase == :updating
 
-      # The spawned process will crash (ahttp_client not available) and send DOWN
       assert_receive {:DOWN, _ref, :process, _pid, _reason}, 1000
 
-      # Simulate the DOWN message reaching the GenServer
       {:noreply, final_state} =
         NervesHubLinkAVM.handle_info({:DOWN, make_ref(), :process, self(), :normal}, new_state)
 
@@ -468,6 +449,19 @@ defmodule NervesHubLinkAVMTest do
     end
   end
 
+  describe "handle_cast/2 - reconnect" do
+    test "resets backoff and schedules connect" do
+      {:ok, state} = NervesHubLinkAVM.init(default_opts())
+      assert_receive :connect
+      state = %{state | backoff: 16_000, phase: :joined}
+
+      {:noreply, new_state} = NervesHubLinkAVM.handle_cast(:reconnect, state)
+      assert new_state.backoff == 1_000
+      assert new_state.phase == :disconnected
+      assert_receive :connect
+    end
+  end
+
   defmodule MockHealthProvider do
     @behaviour NervesHubLinkAVM.HealthProvider
 
@@ -481,14 +475,14 @@ defmodule NervesHubLinkAVMTest do
     test "extensions default to empty map" do
       {:ok, state} = NervesHubLinkAVM.init(default_opts())
       assert_receive :connect
-      assert state.extensions == %{}
+      assert state.config.extensions == %{}
     end
 
     test "extensions stored from opts" do
       opts = Keyword.put(default_opts(), :extensions, health: MockHealthProvider)
       {:ok, state} = NervesHubLinkAVM.init(opts)
       assert_receive :connect
-      assert state.extensions == %{health: MockHealthProvider}
+      assert state.config.extensions == %{health: MockHealthProvider}
     end
   end
 
@@ -512,7 +506,8 @@ defmodule NervesHubLinkAVMTest do
     end
 
     test "extensions:get ignored when no extensions configured", %{state: state, ws: ws} do
-      state = %{state | extensions: %{}}
+      config = %{state.config | extensions: %{}}
+      state = %{state | config: config}
       msg = Channel.encode_message("join_0", "ref_1", "device", "extensions:get", %{})
 
       {:noreply, new_state} =
@@ -528,8 +523,6 @@ defmodule NervesHubLinkAVMTest do
       {:noreply, _state} =
         NervesHubLinkAVM.handle_info({:websocket, ws, IO.iodata_to_binary(msg)}, state)
 
-      # The response is sent via websocket - since ws is self(), we receive it
-      # as a raw binary message. Verify it was sent.
       assert_receive {:"$gen_cast", {:send, 1, _data}}
     end
   end

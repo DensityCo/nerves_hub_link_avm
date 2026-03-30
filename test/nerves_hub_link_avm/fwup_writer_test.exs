@@ -1,8 +1,8 @@
-defmodule NervesHubLinkAVM.DeviceHandlerTest do
+defmodule NervesHubLinkAVM.FwupWriterTest do
   use ExUnit.Case, async: true
 
   defmodule TestHandler do
-    @behaviour NervesHubLinkAVM.DeviceHandler
+    @behaviour NervesHubLinkAVM.FwupWriter
 
     @impl true
     def fwup_begin(size, meta) do
@@ -34,7 +34,7 @@ defmodule NervesHubLinkAVM.DeviceHandlerTest do
   end
 
   defmodule FailingHandler do
-    @behaviour NervesHubLinkAVM.DeviceHandler
+    @behaviour NervesHubLinkAVM.FwupWriter
 
     @impl true
     def fwup_begin(_size, _meta), do: {:error, :no_space}
