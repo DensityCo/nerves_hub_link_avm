@@ -35,7 +35,10 @@ defmodule NervesHubLinkAVM.MixProject do
     [
       maintainers: ["Eliel A. Gordon"],
       licenses: ["MIT"],
-      links: %{"GitHub" => @source_url},
+      links: %{
+        "GitHub" => @source_url,
+        "Hex" => "https://hex.pm/packages/nerves_hub_link_avm"
+      },
       files: ~w(lib src mix.exs .formatter.exs README.md LICENSE)
     ]
   end

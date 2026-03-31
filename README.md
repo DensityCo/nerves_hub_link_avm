@@ -1,5 +1,8 @@
 # NervesHubLinkAVM
 
+[![Hex.pm](https://img.shields.io/hexpm/v/nerves_hub_link_avm.svg)](https://hex.pm/packages/nerves_hub_link_avm)
+[![Docs](https://img.shields.io/badge/hex-docs-blue.svg)](https://hexdocs.pm/nerves_hub_link_avm)
+
 A [NervesHub](https://www.nerves-hub.org/) client for [AtomVM](https://www.atomvm.net/) devices.
 
 NervesHubLinkAVM connects AtomVM-powered microcontrollers (ESP32, etc.) to a NervesHub server for over-the-air (OTA) firmware updates via WebSocket.
