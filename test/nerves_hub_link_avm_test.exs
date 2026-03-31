@@ -141,6 +141,23 @@ defmodule NervesHubLinkAVMTest do
       assert new_state.heartbeat_ref != nil
     end
 
+    test "channel join reply does not join extensions until requested", %{ws: ws} do
+      opts = Keyword.put(default_opts(), :extensions, health: MockHealthProvider)
+      {:ok, state} = NervesHubLinkAVM.init(opts)
+      assert_receive :connect
+      state = %{state | ws_pid: ws, phase: :connected}
+
+      {:noreply, state} = NervesHubLinkAVM.handle_info({:websocket_open, ws}, state)
+
+      reply =
+        Channel.encode_message(state.join_ref, "ref_0", "device", "phx_reply", %{"status" => "ok"})
+
+      {:noreply, new_state} =
+        NervesHubLinkAVM.handle_info({:websocket, ws, IO.iodata_to_binary(reply)}, state)
+
+      assert new_state.extensions_join_ref == nil
+    end
+
     test "websocket_close triggers reconnect", %{state: state, ws: ws} do
       {:noreply, new_state} =
         NervesHubLinkAVM.handle_info({:websocket_close, ws, {true, 1000, "bye"}}, state)
@@ -525,6 +542,22 @@ defmodule NervesHubLinkAVMTest do
         NervesHubLinkAVM.handle_info({:websocket, ws, IO.iodata_to_binary(msg)}, state)
 
       assert new_state.extensions_join_ref =~ "ext_"
+    end
+
+    test "extensions:get only joins extensions once", %{state: state, ws: ws} do
+      msg = Channel.encode_message("join_0", "ref_1", "device", "extensions:get", %{})
+
+      {:noreply, state_after_first_join} =
+        NervesHubLinkAVM.handle_info({:websocket, ws, IO.iodata_to_binary(msg)}, state)
+
+      {:noreply, state_after_second_join} =
+        NervesHubLinkAVM.handle_info(
+          {:websocket, ws, IO.iodata_to_binary(msg)},
+          state_after_first_join
+        )
+
+      assert state_after_first_join.extensions_join_ref =~ "ext_"
+      assert state_after_second_join.extensions_join_ref == state_after_first_join.extensions_join_ref
     end
 
     test "extensions:get ignored when no extensions configured", %{state: state, ws: ws} do

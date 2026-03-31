@@ -12,7 +12,7 @@ defmodule NervesHubLinkAVM do
   @heartbeat_interval 30_000
   @initial_backoff 1_000
   @max_backoff 30_000
-  @device_api_version "2.0.0"
+  @device_api_version "2.2.0"
 
   # -- Public API --
 
@@ -174,7 +174,7 @@ defmodule NervesHubLinkAVM do
     ref = Process.send_after(self(), :heartbeat, @heartbeat_interval)
     state = %{state | phase: :joined, heartbeat_ref: ref}
 
-    {:noreply, maybe_join_extensions(state)}
+    {:noreply, state}
   end
 
   defp handle_channel_message(
@@ -294,7 +294,9 @@ defmodule NervesHubLinkAVM do
   end
 
   defp maybe_join_extensions(state) do
-    if Extensions.any?(state.config.extensions), do: join_extensions(state), else: state
+    if Extensions.any?(state.config.extensions) and is_nil(state.extensions_join_ref),
+      do: join_extensions(state),
+      else: state
   end
 
   defp join_extensions(state) do
