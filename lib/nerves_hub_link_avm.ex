@@ -1,5 +1,40 @@
 defmodule NervesHubLinkAVM do
-  @moduledoc false
+  @moduledoc """
+  NervesHub client for AtomVM devices.
+
+  Manages a WebSocket connection to a NervesHub server, handles the Phoenix
+  channel protocol, and orchestrates firmware updates via `Client` and `FwupWriter`.
+
+  ## Starting
+
+      NervesHubLinkAVM.start_link(
+        host: "your-nerveshub-server.com",
+        device_cert: "/path/to/cert.pem",
+        device_key: "/path/to/key.pem",
+        firmware_meta: %{
+          "uuid" => "...",
+          "product" => "my-product",
+          "architecture" => "esp32",
+          "version" => "1.0.0",
+          "platform" => "esp32"
+        },
+        client: MyApp.Client,
+        fwup_writer: MyApp.ESP32Writer
+      )
+
+  ## Options
+
+  * `:host` - NervesHub server hostname (required)
+  * `:port` - server port (default: `443`)
+  * `:ssl` - enable TLS (default: `true`)
+  * `:device_cert` / `:device_key` - paths for mTLS authentication
+  * `:product_key` / `:product_secret` / `:identifier` - shared secret authentication
+  * `:firmware_meta` - map with keys: `uuid`, `product`, `architecture`, `version`, `platform`
+  * `:client` - module implementing `NervesHubLinkAVM.Client` (default: `Client.Default`)
+  * `:fwup_writer` - module implementing `NervesHubLinkAVM.FwupWriter` (required)
+  * `:extensions` - keyword list of extensions, e.g. `[health: MyApp.HealthProvider]`
+  * `:name` - GenServer name (default: `NervesHubLinkAVM`)
+  """
 
   use GenServer
 

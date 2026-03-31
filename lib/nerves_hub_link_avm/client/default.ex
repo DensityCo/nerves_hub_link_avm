@@ -1,5 +1,10 @@
 defmodule NervesHubLinkAVM.Client.Default do
-  @moduledoc false
+  @moduledoc """
+  Default `NervesHubLinkAVM.Client` implementation.
+
+  Auto-applies all updates and logs progress to stdout.
+  Used when no `:client` option is provided to `NervesHubLinkAVM.start_link/1`.
+  """
   @behaviour NervesHubLinkAVM.Client
 
   # Auto-applies all updates. Logs progress. Good starting point.

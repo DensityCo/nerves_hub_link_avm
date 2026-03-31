@@ -1,5 +1,22 @@
 defmodule NervesHubLinkAVM.Client do
-  @moduledoc false
+  @moduledoc """
+  Behaviour for device lifecycle hooks.
+
+  Controls update decisions, progress reporting, and device actions.
+  All callbacks are optional with sensible defaults — implement only what you need.
+
+  ## Callbacks
+
+  * `update_available/1` - decide whether to apply an update (default: `:apply`)
+  * `fwup_progress/1` - called with download/apply progress percentage
+  * `fwup_error/1` - called when a firmware update fails
+  * `reboot/0` - called when the server requests a reboot
+  * `identify/0` - called when the server requests device identification
+  * `handle_connected/0` - called when the device channel is joined
+  * `handle_disconnected/0` - called when the device channel is disconnected
+
+  See `NervesHubLinkAVM.Client.Default` for an implementation that auto-applies all updates.
+  """
 
   # Universal device lifecycle hooks.
   # Controls update decisions, progress reporting, and device actions.

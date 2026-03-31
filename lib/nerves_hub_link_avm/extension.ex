@@ -1,5 +1,29 @@
 defmodule NervesHubLinkAVM.Extension do
-  @moduledoc false
+  @moduledoc """
+  Behaviour for NervesHub extensions (health, geo, local shell, etc.).
+
+  Each extension module implements this behaviour. The `Extensions` router
+  splits scoped events (e.g., `"health:check"`) and dispatches to the correct
+  extension's `handle_event/3`.
+
+  ## Callbacks
+
+  * `version/0` - protocol version string for this extension
+  * `init/1` - initialize extension state from user-provided opts
+  * `handle_event/3` - handle an event, return `{:reply, event, payload, state}` or `{:noreply, state}`
+
+  ## Built-in extensions
+
+  * `NervesHubLinkAVM.Extension.Health` - health metrics reporting
+
+  ## Custom extensions
+
+  Implement this behaviour and pass it in the extensions config:
+
+      extensions: [
+        my_ext: {MyApp.MyExtension, some_opt: "value"}
+      ]
+  """
 
   # Behaviour for NervesHub extensions (health, geo, local shell, etc.).
   # Each extension module implements this behaviour.

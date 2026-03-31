@@ -1,5 +1,19 @@
 defmodule NervesHubLinkAVM.FwupWriter do
-  @moduledoc false
+  @moduledoc """
+  Behaviour for hardware-specific firmware write operations.
+
+  Implement this for your target platform (ESP32, STM32, etc.).
+  The client library handles downloading, SHA256 verification, and progress
+  reporting — this behaviour only needs to deal with writing bytes to flash.
+
+  ## Callbacks
+
+  * `fwup_begin/2` - prepare for firmware write (erase partition, allocate buffers)
+  * `fwup_chunk/2` - write a chunk of firmware data
+  * `fwup_finish/1` - finalize the write (activate new slot, reboot)
+  * `fwup_abort/1` - clean up after a failed update
+  * `fwup_confirm/0` - (optional) confirm firmware on first boot to prevent rollback
+  """
 
   # Hardware-specific firmware write operations.
   # Implement this behaviour for your target platform (ESP32, STM32, etc.).
