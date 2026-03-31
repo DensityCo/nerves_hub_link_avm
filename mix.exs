@@ -2,7 +2,7 @@ defmodule NervesHubLinkAVM.MixProject do
   use Mix.Project
 
   @source_url "https://github.com/DensityCo/nerves_hub_link_avm"
-  @version "0.1.0"
+  @version "0.1.1"
 
   def project do
     [
@@ -39,7 +39,7 @@ defmodule NervesHubLinkAVM.MixProject do
         "GitHub" => @source_url,
         "Hex" => "https://hex.pm/packages/nerves_hub_link_avm"
       },
-      files: ~w(lib src mix.exs .formatter.exs README.md LICENSE)
+      files: ~w(lib src mix.exs .formatter.exs README.md CHANGELOG.md LICENSE)
     ]
   end
 
@@ -48,7 +48,7 @@ defmodule NervesHubLinkAVM.MixProject do
       main: "readme",
       source_ref: "v#{@version}",
       source_url: @source_url,
-      extras: ["README.md", "LICENSE"]
+      extras: ["README.md", "CHANGELOG.md", "LICENSE"]
     ]
   end
 

@@ -305,7 +305,7 @@ defmodule NervesHubLinkAVM do
     join_ref = "join_#{ref}"
 
     payload =
-      state.config.firmware_meta
+      prefix_firmware_meta(state.config.firmware_meta)
       |> Map.merge(%{
         "device_api_version" => @device_api_version,
         "meta" => %{
@@ -316,6 +316,12 @@ defmodule NervesHubLinkAVM do
 
     send_ws(state, join_ref, "device", "phx_join", payload)
     %{state | join_ref: join_ref}
+  end
+
+  defp prefix_firmware_meta(meta) do
+    Enum.reduce(meta, %{}, fn {k, v}, acc ->
+      Map.put(acc, "nerves_fw_" <> k, v)
+    end)
   end
 
   defp send_heartbeat(state) do

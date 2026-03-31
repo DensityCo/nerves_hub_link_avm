@@ -158,9 +158,18 @@ handle_info(
 % SSL: connection closed
 handle_info(
     ssl_closed,
-    State0
+    #state{controlling_process = CP} = State0
 ) ->
+    CP ! {websocket_close, self(), {normal, closed}},
     {noreply, State0#state{ready_state = closed}};
+
+% SSL reader exited (linked process)
+handle_info(
+    {'EXIT', Pid, _Reason},
+    #state{ssl_reader = Pid, controlling_process = CP} = State0
+) ->
+    CP ! {websocket_close, self(), {normal, reader_exit}},
+    {noreply, State0#state{ready_state = closed, ssl_reader = undefined}};
 
 handle_info(_Msg, State) ->
     {noreply, State}.
@@ -196,7 +205,7 @@ start_recv(#state{transport = {tcp, _}} = State) ->
 start_recv(#state{transport = {ssl, SslSocket}} = State) ->
     %% Spawn a dedicated reader so gen_server stays responsive for sends
     Owner = self(),
-    Reader = spawn_link(fun() -> ssl_reader_loop(Owner, SslSocket) end),
+    Reader = spawn(fun() -> ssl_reader_loop(Owner, SslSocket) end),
     State#state{ssl_reader = Reader}.
 
 %% -- TCP recv (async select) --
