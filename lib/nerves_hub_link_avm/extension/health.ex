@@ -1,5 +1,14 @@
 defmodule NervesHubLinkAVM.Extension.Health do
-  @moduledoc false
+  @moduledoc """
+  Built-in health extension.
+
+  Wraps a `NervesHubLinkAVM.HealthProvider` module and responds to
+  `"check"` events with a health report containing device metrics.
+
+  Automatically used when you configure:
+
+      extensions: [health: MyApp.HealthProvider]
+  """
   @behaviour NervesHubLinkAVM.Extension
 
   # Wraps a user-provided HealthProvider module.
