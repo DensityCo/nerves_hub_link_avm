@@ -1,15 +1,20 @@
 defmodule NervesHubLinkAVM.MixProject do
   use Mix.Project
 
+  @source_url "https://github.com/DensityCo/nerves_hub_link_avm"
+  @version "0.1.0"
+
   def project do
     [
       app: :nerves_hub_link_avm,
-      version: "0.1.0",
-      elixir: "~> 1.15",
+      version: @version,
+      elixir: "~> 1.18",
       start_permanent: false,
       description: "NervesHub client for AtomVM devices",
+      source_url: @source_url,
       package: package(),
       deps: deps(),
+      docs: docs(),
       atomvm_opts: [start: NervesHubLinkAVM],
       xref: [exclude: [:ahttp_client, :ssl]],
       aliases: aliases()
@@ -30,7 +35,17 @@ defmodule NervesHubLinkAVM.MixProject do
     [
       maintainers: ["Eliel A. Gordon"],
       licenses: ["MIT"],
-      links: %{"GitHub" => "https://github.com/DensityCo/nerves_hub_link_avm"}
+      links: %{"GitHub" => @source_url},
+      files: ~w(lib src mix.exs .formatter.exs README.md LICENSE)
+    ]
+  end
+
+  defp docs do
+    [
+      main: "readme",
+      source_ref: "v#{@version}",
+      source_url: @source_url,
+      extras: ["README.md", "LICENSE"]
     ]
   end
 
@@ -41,6 +56,8 @@ defmodule NervesHubLinkAVM.MixProject do
   end
 
   defp deps do
-    []
+    [
+      {:ex_doc, "~> 0.34", only: :dev, runtime: false}
+    ]
   end
 end
