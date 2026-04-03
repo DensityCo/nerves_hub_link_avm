@@ -17,6 +17,7 @@ NervesHubLinkAVM connects AtomVM-powered microcontrollers (ESP32, etc.) to a Ner
 - Update decision control (apply, ignore, reschedule)
 - Firmware validation tracking across reboots
 - Pluggable extension system (health reporting, etc.)
+- Device log forwarding to the NervesHub Logs tab
 - Device identification support (e.g., blink LED on server request)
 - Automatic reconnection with exponential backoff
 - Heartbeat keep-alive
@@ -87,6 +88,9 @@ NervesHubLinkAVM.reconnect()
 
 # Confirm firmware is valid after an update (prevents rollback)
 NervesHubLinkAVM.confirm_update()
+
+# Send a device log line to the NervesHub Logs tab
+NervesHubLinkAVM.log(:info, "boot complete")
 
 # With a named instance
 NervesHubLinkAVM.reconnect(MyDevice)
@@ -166,7 +170,8 @@ end
 
 ### Extensions
 
-Extensions are opt-in and pluggable. Currently supported: health reporting.
+Extensions are opt-in and pluggable. Built-in extensions currently cover health
+reporting and device log forwarding.
 
 ```elixir
 NervesHubLinkAVM.start_link(
@@ -189,6 +194,35 @@ end
 ```
 
 Custom extensions can implement the `NervesHubLinkAVM.Extension` behaviour directly.
+
+### Device logs
+
+To send log lines to the NervesHub `Logs` tab, advertise the `logging`
+extension and configure AtomVM's built-in `:logger` to use
+`NervesHubLinkAVM.LoggerHandler`. You can also send explicit lines with
+`NervesHubLinkAVM.log/3` when needed.
+
+```elixir
+NervesHubLinkAVM.start_link(
+  ...,
+  extensions: [logging: true]
+)
+
+:logger_manager.start_link(%{
+  log_level: :info,
+  logger: [
+    {:handler, :default, :logger_std_h, %{}},
+    {:handler, :nerveshub, NervesHubLinkAVM.LoggerHandler,
+     %{config: %{server: NervesHubLinkAVM}}}
+  ]
+})
+
+:logger.info(~c"boot complete")
+
+NervesHubLinkAVM.log(:warning, "wifi signal is low")
+```
+
+See `examples/with_device_logs.exs` for a full example.
 
 ### Update lifecycle
 

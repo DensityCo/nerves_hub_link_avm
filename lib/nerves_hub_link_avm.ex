@@ -64,6 +64,10 @@ defmodule NervesHubLinkAVM do
     GenServer.call(server, :confirm_update)
   end
 
+  def log(level, message, server \\ __MODULE__) do
+    GenServer.cast(server, {:log, level, message})
+  end
+
   # AtomVM entry point
   def start do
     IO.puts("NervesHubLinkAVM: start/0 called — call start_link/1 with config to connect")
@@ -138,6 +142,15 @@ defmodule NervesHubLinkAVM do
   @impl true
   def handle_cast({:send_event, event, payload}, state) do
     send_channel_message(state, event, payload)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast({:log, level, message}, state) do
+    if Extensions.attached?(state.config.extensions, :logging) do
+      send_extensions_message(state, "logging:send", build_log_payload(level, message))
+    end
+
     {:noreply, state}
   end
 
@@ -258,6 +271,9 @@ defmodule NervesHubLinkAVM do
        when is_list(attach_list) do
     IO.puts("NervesHubLinkAVM: extensions joined, attaching: #{inspect(attach_list)}")
 
+    updated_extensions = Extensions.mark_attached(attach_list, state.config.extensions)
+    state = update_extensions(state, updated_extensions)
+
     Enum.each(Extensions.attachable(attach_list, state.config.extensions), fn ext ->
       send_extensions_message(state, "#{ext}:attached", %{})
     end)
@@ -352,6 +368,18 @@ defmodule NervesHubLinkAVM do
     send_ws(state, state.extensions_join_ref, "extensions", event, payload)
   end
 
+  defp build_log_payload(level, message) do
+    %{
+      "level" => normalize_log_level(level),
+      "message" => NervesHubLinkAVM.LoggerHandler.format_message(message),
+      "meta" => %{"time" => Integer.to_string(:erlang.system_time(:microsecond))}
+    }
+  end
+
+  defp normalize_log_level(level) when is_atom(level), do: :erlang.atom_to_binary(level)
+  defp normalize_log_level(level) when is_binary(level), do: level
+  defp normalize_log_level(level), do: IO.iodata_to_binary(:io_lib.format("~p", [level]))
+
   defp update_extensions(state, updated) do
     %{state | config: %{state.config | extensions: updated}}
   end
@@ -372,10 +400,12 @@ defmodule NervesHubLinkAVM do
   defp disconnect(state) do
     cancel_timer(state.heartbeat_ref)
     cancel_timer(state.reconnect_ref)
+    config = %{state.config | extensions: Extensions.reset_attached(state.config.extensions)}
 
     %{
       state
       | phase: :disconnected,
+        config: config,
         heartbeat_ref: nil,
         reconnect_ref: nil,
         ws_pid: nil,

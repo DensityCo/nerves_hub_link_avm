@@ -4,11 +4,11 @@ defmodule NervesHubLinkAVM.Extensions do
   # Routes extension events to the correct extension module.
   # Protocol-free — no knowledge of channels, websockets, or encoding.
 
-  @doc "Initialize all configured extensions. Returns a map of key => %{mod, state}."
+  @doc "Initialize all configured extensions. Returns a map of key => %{mod, state, attached}."
   def init(config) do
     Enum.reduce(config, %{}, fn {key, {mod, opts}}, acc ->
       {:ok, state} = mod.init(opts)
-      Map.put(acc, key, %{mod: mod, state: state})
+      Map.put(acc, key, %{mod: mod, state: state, attached: false})
     end)
   end
 
@@ -26,6 +26,31 @@ defmodule NervesHubLinkAVM.Extensions do
   def attachable(attach_list, extensions) do
     configured = Enum.map(Map.keys(extensions), &:erlang.atom_to_binary/1)
     Enum.filter(attach_list, fn ext -> ext in configured end)
+  end
+
+  @doc "Mark the configured extensions from the server attach list as attached."
+  def mark_attached(attach_list, extensions) do
+    attachable = attachable(attach_list, extensions)
+
+    Enum.reduce(extensions, %{}, fn {key, entry}, acc ->
+      attached = :erlang.atom_to_binary(key) in attachable
+      Map.put(acc, key, %{entry | attached: attached})
+    end)
+  end
+
+  @doc "Clear attachment state for all configured extensions."
+  def reset_attached(extensions) do
+    Enum.reduce(extensions, %{}, fn {key, entry}, acc ->
+      Map.put(acc, key, %{entry | attached: false})
+    end)
+  end
+
+  @doc "Check whether a configured extension has been attached by the server."
+  def attached?(extensions, key) do
+    case Map.get(extensions, key) do
+      %{attached: attached} -> attached
+      nil -> false
+    end
   end
 
   @doc """

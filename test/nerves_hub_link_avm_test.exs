@@ -74,6 +74,10 @@ defmodule NervesHubLinkAVMTest do
     ]
   end
 
+  defp logging_opts do
+    Keyword.put(default_opts(), :extensions, logging: true)
+  end
+
   describe "init/1" do
     test "initializes state from opts" do
       {:ok, state} = NervesHubLinkAVM.init(default_opts())
@@ -423,9 +427,42 @@ defmodule NervesHubLinkAVMTest do
     end
   end
 
-  describe "disconnect clears extensions_join_ref" do
-    test "extensions_join_ref is nil after disconnect" do
-      {:ok, state} = NervesHubLinkAVM.init(default_opts())
+  describe "handle_cast/2 - log" do
+    test "sends log lines through the logging extension when attached" do
+      {:ok, state} = NervesHubLinkAVM.init(logging_opts())
+      assert_receive :connect
+
+      config =
+        %{
+          state.config
+          | extensions:
+              NervesHubLinkAVM.Extensions.mark_attached(["logging"], state.config.extensions)
+        }
+
+      state = %{
+        state
+        | config: config,
+          ws_pid: self(),
+          phase: :joined,
+          join_ref: "join_0",
+          extensions_join_ref: "ext_0"
+      }
+
+      {:noreply, new_state} = NervesHubLinkAVM.handle_cast({:log, :info, "hello"}, state)
+
+      assert new_state == state
+      assert_receive {:"$gen_cast", {:send, 1, data}}
+
+      assert {:ok, {"ext_0", "ref_0", "extensions", "logging:send", payload}} =
+               Channel.decode_message(data)
+
+      assert payload["level"] == "info"
+      assert payload["message"] == "hello"
+      assert is_binary(payload["meta"]["time"])
+    end
+
+    test "ignores log lines when the logging extension is not attached" do
+      {:ok, state} = NervesHubLinkAVM.init(logging_opts())
       assert_receive :connect
 
       state = %{
@@ -436,10 +473,39 @@ defmodule NervesHubLinkAVMTest do
           extensions_join_ref: "ext_0"
       }
 
+      {:noreply, new_state} = NervesHubLinkAVM.handle_cast({:log, :info, "hello"}, state)
+
+      assert new_state == state
+      refute_receive {:"$gen_cast", {:send, 1, _data}}
+    end
+  end
+
+  describe "disconnect clears extensions state" do
+    test "extensions_join_ref is nil and attached extensions are cleared after disconnect" do
+      {:ok, state} = NervesHubLinkAVM.init(logging_opts())
+      assert_receive :connect
+
+      config =
+        %{
+          state.config
+          | extensions:
+              NervesHubLinkAVM.Extensions.mark_attached(["logging"], state.config.extensions)
+        }
+
+      state = %{
+        state
+        | config: config,
+          ws_pid: self(),
+          phase: :joined,
+          join_ref: "join_0",
+          extensions_join_ref: "ext_0"
+      }
+
       {:noreply, new_state} =
         NervesHubLinkAVM.handle_info({:websocket_close, self(), {true, 1000, "bye"}}, state)
 
       assert new_state.extensions_join_ref == nil
+      refute NervesHubLinkAVM.Extensions.attached?(new_state.config.extensions, :logging)
       assert new_state.phase == :disconnected
     end
   end
@@ -499,6 +565,20 @@ defmodule NervesHubLinkAVMTest do
     end
   end
 
+  describe "logger handler" do
+    test "passes raw log event to the server for deferred formatting" do
+      NervesHubLinkAVM.LoggerHandler.log(
+        %{
+          level: :info,
+          msg: {"boot ~s", [~c"complete"]}
+        },
+        %{server: self()}
+      )
+
+      assert_receive {:"$gen_cast", {:log, :info, {"boot ~s", [~c"complete"]}}}
+    end
+  end
+
   defmodule MockHealthProvider do
     @behaviour NervesHubLinkAVM.HealthProvider
 
@@ -521,6 +601,14 @@ defmodule NervesHubLinkAVMTest do
       assert_receive :connect
 
       assert %{health: %{mod: NervesHubLinkAVM.Extension.Health, state: _}} =
+               state.config.extensions
+    end
+
+    test "logging shorthand initializes built-in logging extension" do
+      {:ok, state} = NervesHubLinkAVM.init(logging_opts())
+      assert_receive :connect
+
+      assert %{logging: %{mod: NervesHubLinkAVM.Extension.Logging, state: %{}}} =
                state.config.extensions
     end
   end
@@ -557,7 +645,9 @@ defmodule NervesHubLinkAVMTest do
         )
 
       assert state_after_first_join.extensions_join_ref =~ "ext_"
-      assert state_after_second_join.extensions_join_ref == state_after_first_join.extensions_join_ref
+
+      assert state_after_second_join.extensions_join_ref ==
+               state_after_first_join.extensions_join_ref
     end
 
     test "extensions:get ignored when no extensions configured", %{state: state, ws: ws} do
@@ -579,6 +669,35 @@ defmodule NervesHubLinkAVMTest do
         NervesHubLinkAVM.handle_info({:websocket, ws, IO.iodata_to_binary(msg)}, state)
 
       assert_receive {:"$gen_cast", {:send, 1, _data}}
+    end
+
+    test "extensions join reply records attached logging extension" do
+      {:ok, state} = NervesHubLinkAVM.init(logging_opts())
+      assert_receive :connect
+
+      state = %{
+        state
+        | ws_pid: self(),
+          phase: :joined,
+          join_ref: "join_0",
+          extensions_join_ref: "ext_0"
+      }
+
+      msg =
+        Channel.encode_message("ext_0", "ref_1", "extensions", "phx_reply", %{
+          "status" => "ok",
+          "response" => ["logging"]
+        })
+
+      {:noreply, new_state} =
+        NervesHubLinkAVM.handle_info({:websocket, self(), IO.iodata_to_binary(msg)}, state)
+
+      assert NervesHubLinkAVM.Extensions.attached?(new_state.config.extensions, :logging)
+
+      assert_receive {:"$gen_cast", {:send, 1, data}}
+
+      assert {:ok, {"ext_0", _ref, "extensions", "logging:attached", %{}}} =
+               Channel.decode_message(data)
     end
   end
 end

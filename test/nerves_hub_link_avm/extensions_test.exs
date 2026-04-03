@@ -72,6 +72,22 @@ defmodule NervesHubLinkAVM.ExtensionsTest do
     end
   end
 
+  describe "attachment tracking" do
+    test "mark_attached/2 records server attachments" do
+      exts = init_extensions()
+      updated = Extensions.mark_attached(["test"], exts)
+
+      assert Extensions.attached?(updated, :test)
+    end
+
+    test "reset_attached/1 clears attachment state" do
+      exts = Extensions.mark_attached(["test"], init_extensions())
+      reset = Extensions.reset_attached(exts)
+
+      refute Extensions.attached?(reset, :test)
+    end
+  end
+
   describe "handle_event/3" do
     test "routes event to correct extension and returns reply" do
       exts = init_extensions()

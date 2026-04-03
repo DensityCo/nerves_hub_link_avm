@@ -15,6 +15,7 @@ defmodule NervesHubLinkAVM.Extension do
   ## Built-in extensions
 
   * `NervesHubLinkAVM.Extension.Health` - health metrics reporting
+  * `NervesHubLinkAVM.Extension.Logging` - device log forwarding to NervesHub
 
   ## Custom extensions
 
