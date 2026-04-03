@@ -9,7 +9,7 @@ defmodule NervesHubLinkAVM.HTTPClient do
   def get_content_length(url) do
     {protocol, host, port, path} = parse_url(url)
 
-    with {:ok, conn} <- :ahttp_client.connect(protocol, host, port, connect_opts()),
+    with {:ok, conn} <- :ahttp_client.connect(protocol, host, port, connect_opts([:"Content-Length"])),
          {:ok, conn, ref} <- :ahttp_client.request(conn, "HEAD", path, [], :undefined) do
       result = recv_loop(conn, ref, %{status: nil, content_length: nil})
       :ahttp_client.close(conn)
@@ -116,6 +116,11 @@ defmodule NervesHubLinkAVM.HTTPClient do
 
   def process_head_responses([{:done, ref} | _rest], ref, result) do
     {:done, result}
+  end
+
+  def process_head_responses([{:header, ref, {<<"Content-Length">>, value}} | rest], ref, result) do
+    len = :erlang.binary_to_integer(value)
+    process_head_responses(rest, ref, %{result | content_length: len})
   end
 
   def process_head_responses([_ | rest], ref, result) do

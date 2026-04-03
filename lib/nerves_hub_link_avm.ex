@@ -182,6 +182,7 @@ defmodule NervesHubLinkAVM do
   end
 
   def handle_info({:websocket, ws_pid, raw}, %State{ws_pid: ws_pid} = state) do
+    :io.format(~c"NervesHubLinkAVM: << ~s\n", [raw])
     case Channel.decode_message(raw) do
       {:ok, msg} ->
         handle_channel_message(msg, state)
@@ -310,7 +311,8 @@ defmodule NervesHubLinkAVM do
     {:noreply, schedule_reconnect(state)}
   end
 
-  defp handle_channel_message(_msg, state) do
+  defp handle_channel_message(msg, state) do
+    :io.format(~c"NervesHubLinkAVM: unhandled: ~p\n", [msg])
     {:noreply, state}
   end
 
