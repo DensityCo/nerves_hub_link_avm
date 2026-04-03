@@ -100,6 +100,10 @@ defmodule NervesHubLinkAVM.Configurator do
     health: NervesHubLinkAVM.Extension.Health
   }
 
+  @marker_extensions %{
+    logging: NervesHubLinkAVM.Extension.Logging
+  }
+
   defp parse_and_init_extensions([]), do: %{}
 
   defp parse_and_init_extensions(config) do
@@ -108,11 +112,20 @@ defmodule NervesHubLinkAVM.Configurator do
         {key, {mod, opts}} ->
           {key, {mod, opts}}
 
-        {key, provider} when is_atom(provider) ->
+        {key, true} ->
+          case Map.get(@marker_extensions, key) do
+            nil -> raise ArgumentError, "unknown extension shorthand: #{key}"
+            mod -> {key, {mod, []}}
+          end
+
+        {key, provider} when is_atom(provider) and provider not in [true, false, nil] ->
           case Map.get(@known_extensions, key) do
             nil -> raise ArgumentError, "unknown extension shorthand: #{key}"
             mod -> {key, {mod, [provider: provider]}}
           end
+
+        {key, value} ->
+          raise ArgumentError, "invalid extension config for #{key}: #{inspect(value)}"
       end)
 
     Extensions.init(parsed)
