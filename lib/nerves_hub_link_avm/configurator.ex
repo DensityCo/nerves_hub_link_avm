@@ -15,6 +15,7 @@ defmodule NervesHubLinkAVM.Configurator do
     :client,
     :firmware_writer,
     :http_client,
+    :verifier,
     extensions: %{},
     firmware_validated: false
   ]
@@ -44,6 +45,7 @@ defmodule NervesHubLinkAVM.Configurator do
       client: Keyword.get(opts, :client, NervesHubLinkAVM.Client.Default),
       firmware_writer: Keyword.fetch!(opts, :firmware_writer),
       http_client: Keyword.get(opts, :http_client, NervesHubLinkAVM.HTTPClient),
+      verifier: Keyword.get(opts, :verifier, NervesHubLinkAVM.Verifier.SHA256),
       extensions: parse_and_init_extensions(Keyword.get(opts, :extensions, []))
     }
   end

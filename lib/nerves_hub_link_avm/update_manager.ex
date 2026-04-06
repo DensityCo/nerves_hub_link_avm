@@ -1,10 +1,10 @@
 defmodule NervesHubLinkAVM.UpdateManager do
   @moduledoc false
 
-  # Orchestrates firmware updates by bridging Client (decisions/progress)
-  # and FirmwareWriter (hardware writes) through Downloader (HTTP streaming).
+  # Orchestrates firmware updates by composing pipeline steps:
+  # begin → download (verify + write per chunk) → verify finish → write finish.
   #
-  # Called from the main GenServer via run/5. Runs in a spawned process.
+  # Called from the main GenServer via run/4. Runs in a spawned process.
   # Sends status updates back to the GenServer for channel delivery.
 
   alias NervesHubLinkAVM.Client
@@ -16,14 +16,9 @@ defmodule NervesHubLinkAVM.UpdateManager do
   `server` is the GenServer PID to send status updates to.
   """
   def run(fw_url, meta, config, server) do
-    client = config.client
-    writer = config.firmware_writer
-    http = config.http_client
-    expected_sha256 = Map.get(meta, "sha256", "")
-
-    case Client.call_update_available(client, meta) do
+    case Client.call_update_available(config.client, meta) do
       :apply ->
-        apply_update(http, fw_url, expected_sha256, meta, writer, client, server)
+        apply_update(config, fw_url, meta, server)
 
       :ignore ->
         send_status(server, "ignored")
@@ -35,42 +30,51 @@ defmodule NervesHubLinkAVM.UpdateManager do
     end
   end
 
-  defp apply_update(http, fw_url, expected_sha256, meta, writer, client, server) do
-    with {:ok, writer_state} <- writer.firmware_begin(0, meta) do
+  defp apply_update(config, fw_url, meta, server) do
+    expected_sha256 = Map.get(meta, "sha256", "")
+
+    with {:ok, ws} <- config.firmware_writer.firmware_begin(0, meta),
+         {:ok, vs} <- config.verifier.init(expected_sha256) do
       send_status(server, "downloading")
-
-      progress_fn = fn percent ->
-        Client.call_firmware_progress(client, percent)
-        send_progress(server, percent)
-      end
-
-      case Downloader.download(http, fw_url, expected_sha256, writer, writer_state, progress_fn) do
-        {:ok, writer_state} ->
-          send_status(server, "updating")
-
-          case writer.firmware_finish(writer_state) do
-            :ok ->
-              send_status(server, "fwup_complete")
-
-            {:error, reason} ->
-              writer.firmware_abort(writer_state)
-              Client.call_firmware_error(client, reason)
-              send_status(server, "update_failed")
-          end
-
-        {:error, reason} ->
-          Client.call_firmware_error(client, reason)
-          send_status(server, "update_failed")
-      end
+      run_pipeline(config, fw_url, vs, ws, server)
     else
       {:error, reason} ->
-        Client.call_firmware_error(client, reason)
+        Client.call_firmware_error(config.client, reason)
+        send_status(server, "update_failed")
+    end
+  end
+
+  # After begin + init succeed, writer_state is available for abort on any failure.
+  defp run_pipeline(config, fw_url, verify_state, writer_state, server) do
+    chunk_fn = fn chunk, {vs, ws} ->
+      with {:ok, vs} <- config.verifier.update(chunk, vs),
+           {:ok, ws} <- config.firmware_writer.firmware_chunk(chunk, ws) do
+        {:ok, {vs, ws}}
+      end
+    end
+
+    progress_fn = fn percent ->
+      Client.call_firmware_progress(config.client, percent)
+      send_progress(server, percent)
+    end
+
+    with {:ok, {vs, ws}} <-
+           Downloader.download(config.http_client, fw_url, chunk_fn, {verify_state, writer_state}, progress_fn),
+         :ok <- config.verifier.finish(vs),
+         :ok <- send_status(server, "updating"),
+         :ok <- config.firmware_writer.firmware_finish(ws) do
+      send_status(server, "fwup_complete")
+    else
+      {:error, reason} ->
+        config.firmware_writer.firmware_abort(writer_state)
+        Client.call_firmware_error(config.client, reason)
         send_status(server, "update_failed")
     end
   end
 
   defp send_status(server, status) do
     GenServer.cast(server, {:send_event, "status_update", %{"status" => status}})
+    :ok
   end
 
   defp send_progress(server, value) do

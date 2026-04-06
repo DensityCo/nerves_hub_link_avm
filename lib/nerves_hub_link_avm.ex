@@ -32,6 +32,8 @@ defmodule NervesHubLinkAVM do
   * `:firmware_meta` - map with keys: `uuid`, `product`, `architecture`, `version`, `platform`
   * `:client` - module implementing `NervesHubLinkAVM.Client` (default: `Client.Default`)
   * `:firmware_writer` - module implementing `NervesHubLinkAVM.FirmwareWriter` (required)
+  * `:http_client` - module implementing `NervesHubLinkAVM.HTTPClient` (default: `HTTPClient`)
+  * `:verifier` - module implementing `NervesHubLinkAVM.Verifier` (default: `Verifier.SHA256`)
   * `:extensions` - keyword list of extensions, e.g. `[health: MyApp.HealthProvider]`
   * `:name` - GenServer name (default: `NervesHubLinkAVM`)
   """

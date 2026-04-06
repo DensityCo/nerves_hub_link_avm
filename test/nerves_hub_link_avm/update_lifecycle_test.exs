@@ -93,6 +93,14 @@ defmodule NervesHubLinkAVM.UpdateLifecycleTest do
     end
   end
 
+  defmodule NoOpVerifier do
+    @behaviour NervesHubLinkAVM.Verifier
+
+    def init(_expected), do: {:ok, :none}
+    def update(_data, state), do: {:ok, state}
+    def finish(_state), do: :ok
+  end
+
   defmodule FailBeginHandler do
     @behaviour NervesHubLinkAVM.FirmwareWriter
 
@@ -191,6 +199,33 @@ defmodule NervesHubLinkAVM.UpdateLifecycleTest do
       {:noreply, _} = trigger_update(state, "http://localhost:#{port}/fw.bin", sha256: sha256)
 
       assert_receive {:finish, _}, 3000
+
+      statuses = collect_statuses()
+      assert "fwup_complete" in statuses
+      refute "update_failed" in statuses
+    end
+  end
+
+  describe "custom verifier" do
+    setup do
+      Process.register(self(), :lifecycle_test)
+      :ok
+    end
+
+    test "uses a custom no-op verifier that skips SHA256 checking" do
+      firmware = "unsigned firmware"
+      port = MockHTTP.start_server(firmware)
+
+      # Pass a wrong SHA256 — the no-op verifier should ignore it
+      opts = default_opts() ++ [verifier: NoOpVerifier]
+      {:ok, state} = NervesHubLinkAVM.init(opts)
+      assert_receive :connect
+      state = %{state | ws_pid: self(), phase: :joined, join_ref: "join_0"}
+
+      {:noreply, _} = trigger_update(state, "http://localhost:#{port}/fw.bin", sha256: "wrong")
+
+      assert_receive {:finish, %{chunks: chunks}}, 3000
+      assert Enum.join(chunks) == firmware
 
       statuses = collect_statuses()
       assert "fwup_complete" in statuses
