@@ -54,47 +54,19 @@ defmodule NervesHubLinkAVM.Client do
     handle_disconnected: 0
   ]
 
-  # -- Default implementations --
+  # -- Dispatch helpers --
 
-  def call_update_available(client, meta) do
-    if function_exported?(client, :update_available, 1),
-      do: client.update_available(meta),
-      else: :apply
-  end
+  def call_update_available(client, meta), do: dispatch(client, :update_available, [meta], :apply)
+  def call_firmware_progress(client, percent), do: dispatch(client, :firmware_progress, [percent])
+  def call_firmware_error(client, error), do: dispatch(client, :firmware_error, [error])
+  def call_reboot(client), do: dispatch(client, :reboot)
+  def call_identify(client), do: dispatch(client, :identify)
+  def call_connected(client), do: dispatch(client, :handle_connected)
+  def call_disconnected(client), do: dispatch(client, :handle_disconnected)
 
-  def call_firmware_progress(client, percent) do
-    if function_exported?(client, :firmware_progress, 1),
-      do: client.firmware_progress(percent),
-      else: :ok
-  end
-
-  def call_firmware_error(client, error) do
-    if function_exported?(client, :firmware_error, 1),
-      do: client.firmware_error(error),
-      else: :ok
-  end
-
-  def call_reboot(client) do
-    if function_exported?(client, :reboot, 0),
-      do: client.reboot(),
-      else: :ok
-  end
-
-  def call_identify(client) do
-    if function_exported?(client, :identify, 0),
-      do: client.identify(),
-      else: :ok
-  end
-
-  def call_connected(client) do
-    if function_exported?(client, :handle_connected, 0),
-      do: client.handle_connected(),
-      else: :ok
-  end
-
-  def call_disconnected(client) do
-    if function_exported?(client, :handle_disconnected, 0),
-      do: client.handle_disconnected(),
-      else: :ok
+  defp dispatch(client, func, args \\ [], default \\ :ok) do
+    if function_exported?(client, func, length(args)),
+      do: apply(client, func, args),
+      else: default
   end
 end
