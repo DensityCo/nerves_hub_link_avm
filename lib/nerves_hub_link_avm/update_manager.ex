@@ -7,7 +7,6 @@ defmodule NervesHubLinkAVM.UpdateManager do
   # Called from the main GenServer via run/4. Runs in a spawned process.
   # Sends status updates back to the GenServer for channel delivery.
 
-  alias NervesHubLinkAVM.Client
   alias NervesHubLinkAVM.Downloader
 
   @doc """
@@ -18,7 +17,7 @@ defmodule NervesHubLinkAVM.UpdateManager do
   def run(fw_url, meta, config, server) do
     expected_sha256 = Map.get(meta, "sha256", "")
 
-    with :apply <- Client.call_update_available(config.client, meta),
+    with :apply <- config.client.update_available(meta),
          {:ok, ws} <- config.firmware_writer.firmware_begin(0, meta),
          {:ok, vs} <- config.verifier.init(expected_sha256) do
       send_status(server, "downloading")
@@ -33,7 +32,7 @@ defmodule NervesHubLinkAVM.UpdateManager do
         run(fw_url, meta, config, server)
 
       {:error, reason} ->
-        Client.call_firmware_error(config.client, reason)
+        config.client.firmware_error(reason)
         send_status(server, "update_failed")
     end
   end
@@ -48,7 +47,7 @@ defmodule NervesHubLinkAVM.UpdateManager do
     end
 
     progress_fn = fn percent ->
-      Client.call_firmware_progress(config.client, percent)
+      config.client.firmware_progress(percent)
       send_progress(server, percent)
     end
 
@@ -61,7 +60,7 @@ defmodule NervesHubLinkAVM.UpdateManager do
     else
       {:error, reason} ->
         config.firmware_writer.firmware_abort(writer_state)
-        Client.call_firmware_error(config.client, reason)
+        config.client.firmware_error(reason)
         send_status(server, "update_failed")
     end
   end
