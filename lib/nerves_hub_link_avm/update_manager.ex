@@ -23,7 +23,9 @@ defmodule NervesHubLinkAVM.UpdateManager do
     expected_sha256 = Map.get(meta, "sha256", "")
 
     with :apply <- config.client.update_available(meta),
-         {:ok, update} <- init_update(config, expected_sha256, meta),
+         {:ok, writer_state} <- config.firmware_writer.firmware_begin(0, meta),
+         {:ok, verify_state} <- config.verifier.init(expected_sha256),
+         update = %Update{writer_state: writer_state, verify_state: verify_state},
          :ok <- send_status(server, "downloading"),
          {:ok, update} <- download_chunks(config, fw_url, update, server),
          :ok <- finish_verify(config, update),
@@ -47,13 +49,6 @@ defmodule NervesHubLinkAVM.UpdateManager do
         config.firmware_writer.firmware_abort(update.writer_state)
         config.client.firmware_error(reason)
         send_status(server, "update_failed")
-    end
-  end
-
-  defp init_update(config, expected_sha256, meta) do
-    with {:ok, writer_state} <- config.firmware_writer.firmware_begin(0, meta),
-         {:ok, verify_state} <- config.verifier.init(expected_sha256) do
-      {:ok, %Update{writer_state: writer_state, verify_state: verify_state}}
     end
   end
 
