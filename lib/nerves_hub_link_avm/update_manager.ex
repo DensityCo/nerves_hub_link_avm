@@ -18,14 +18,10 @@ defmodule NervesHubLinkAVM.UpdateManager do
     expected_sha256 = Map.get(meta, "sha256", "")
 
     with :apply <- config.client.update_available(meta),
-         {:ok, writer_state} <- begin_write(config, meta),
-         {:ok, verify_state} <- config.verifier.init(expected_sha256),
-         :ok <- send_status(server, "downloading"),
-         {:ok, {verify_state, writer_state}} <- download_chunks(config, fw_url, verify_state, writer_state, server),
-         :ok <- config.verifier.finish(verify_state),
-         :ok <- send_status(server, "updating"),
-         :ok <- config.firmware_writer.firmware_finish(writer_state) do
-      send_status(server, "fwup_complete")
+         {:ok, writer_state} <- config.firmware_writer.firmware_begin(0, meta),
+         {:ok, verify_state} <- config.verifier.init(expected_sha256) do
+      send_status(server, "downloading")
+      execute(config, fw_url, verify_state, writer_state, server)
     else
       :ignore ->
         send_status(server, "ignored")
@@ -36,29 +32,22 @@ defmodule NervesHubLinkAVM.UpdateManager do
         run(fw_url, meta, config, server)
 
       {:error, reason} ->
-        abort_write(config)
         config.client.firmware_error(reason)
         send_status(server, "update_failed")
     end
   end
 
-  # Stash writer_state in the process dictionary so abort_write can access it
-  # from the else block. Safe because run/4 always executes in a dedicated process.
-  defp begin_write(config, meta) do
-    case config.firmware_writer.firmware_begin(0, meta) do
-      {:ok, writer_state} ->
-        Process.put(:writer_state, writer_state)
-        {:ok, writer_state}
-
-      error ->
-        error
-    end
-  end
-
-  defp abort_write(config) do
-    case Process.get(:writer_state) do
-      nil -> :ok
-      writer_state -> config.firmware_writer.firmware_abort(writer_state)
+  defp execute(config, fw_url, verify_state, writer_state, server) do
+    with {:ok, {verify_state, writer_state}} <- download_chunks(config, fw_url, verify_state, writer_state, server),
+         :ok <- config.verifier.finish(verify_state),
+         :ok <- send_status(server, "updating"),
+         :ok <- config.firmware_writer.firmware_finish(writer_state) do
+      send_status(server, "fwup_complete")
+    else
+      {:error, reason} ->
+        config.firmware_writer.firmware_abort(writer_state)
+        config.client.firmware_error(reason)
+        send_status(server, "update_failed")
     end
   end
 
