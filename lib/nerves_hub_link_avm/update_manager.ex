@@ -16,20 +16,14 @@ defmodule NervesHubLinkAVM.UpdateManager do
   `server` is the GenServer PID to send status updates to.
   """
   def run(fw_url, meta, config, server) do
-    case Client.call_update_available(config.client, meta) do
-      :apply ->
-        expected_sha256 = Map.get(meta, "sha256", "")
+    expected_sha256 = Map.get(meta, "sha256", "")
 
-        with {:ok, ws} <- config.firmware_writer.firmware_begin(0, meta),
-             {:ok, vs} <- config.verifier.init(expected_sha256) do
-          send_status(server, "downloading")
-          run_pipeline(config, fw_url, vs, ws, server)
-        else
-          {:error, reason} ->
-            Client.call_firmware_error(config.client, reason)
-            send_status(server, "update_failed")
-        end
-
+    with :apply <- Client.call_update_available(config.client, meta),
+         {:ok, ws} <- config.firmware_writer.firmware_begin(0, meta),
+         {:ok, vs} <- config.verifier.init(expected_sha256) do
+      send_status(server, "downloading")
+      run_pipeline(config, fw_url, vs, ws, server)
+    else
       :ignore ->
         send_status(server, "ignored")
 
@@ -37,6 +31,10 @@ defmodule NervesHubLinkAVM.UpdateManager do
         send_status(server, "reschedule")
         Process.sleep(ms)
         run(fw_url, meta, config, server)
+
+      {:error, reason} ->
+        Client.call_firmware_error(config.client, reason)
+        send_status(server, "update_failed")
     end
   end
 
