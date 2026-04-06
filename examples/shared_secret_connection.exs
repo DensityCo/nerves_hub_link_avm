@@ -18,5 +18,5 @@ NervesHubLinkAVM.start_link(
     "version" => "1.0.0",
     "platform" => "esp32"
   },
-  fwup_writer: MyApp.ESP32Writer
+  firmware_writer: MyApp.ESP32Writer
 )

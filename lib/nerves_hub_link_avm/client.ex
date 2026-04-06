@@ -8,8 +8,8 @@ defmodule NervesHubLinkAVM.Client do
   ## Callbacks
 
   * `update_available/1` - decide whether to apply an update (default: `:apply`)
-  * `fwup_progress/1` - called with download/apply progress percentage
-  * `fwup_error/1` - called when a firmware update fails
+  * `firmware_progress/1` - called with download/apply progress percentage
+  * `firmware_error/1` - called when a firmware update fails
   * `reboot/0` - called when the server requests a reboot
   * `identify/0` - called when the server requests device identification
   * `handle_connected/0` - called when the device channel is joined
@@ -27,10 +27,10 @@ defmodule NervesHubLinkAVM.Client do
               :apply | :ignore | {:reschedule, pos_integer()}
 
   @doc "Called with firmware download/apply progress (0-100)."
-  @callback fwup_progress(percent :: 0..100) :: :ok
+  @callback firmware_progress(percent :: 0..100) :: :ok
 
   @doc "Called when a firmware update fails."
-  @callback fwup_error(error :: term()) :: :ok
+  @callback firmware_error(error :: term()) :: :ok
 
   @doc "Called when the server requests a reboot."
   @callback reboot() :: :ok
@@ -46,8 +46,8 @@ defmodule NervesHubLinkAVM.Client do
 
   @optional_callbacks [
     update_available: 1,
-    fwup_progress: 1,
-    fwup_error: 1,
+    firmware_progress: 1,
+    firmware_error: 1,
     reboot: 0,
     identify: 0,
     handle_connected: 0,
@@ -62,15 +62,15 @@ defmodule NervesHubLinkAVM.Client do
       else: :apply
   end
 
-  def call_fwup_progress(client, percent) do
-    if function_exported?(client, :fwup_progress, 1),
-      do: client.fwup_progress(percent),
+  def call_firmware_progress(client, percent) do
+    if function_exported?(client, :firmware_progress, 1),
+      do: client.firmware_progress(percent),
       else: :ok
   end
 
-  def call_fwup_error(client, error) do
-    if function_exported?(client, :fwup_error, 1),
-      do: client.fwup_error(error),
+  def call_firmware_error(client, error) do
+    if function_exported?(client, :firmware_error, 1),
+      do: client.firmware_error(error),
       else: :ok
   end
 

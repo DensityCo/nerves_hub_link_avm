@@ -13,7 +13,7 @@ defmodule NervesHubLinkAVM.Configurator do
     :auth,
     :firmware_meta,
     :client,
-    :fwup_writer,
+    :firmware_writer,
     :http_client,
     extensions: %{},
     firmware_validated: false
@@ -42,7 +42,7 @@ defmodule NervesHubLinkAVM.Configurator do
       auth: auth,
       firmware_meta: firmware_meta,
       client: Keyword.get(opts, :client, NervesHubLinkAVM.Client.Default),
-      fwup_writer: Keyword.fetch!(opts, :fwup_writer),
+      firmware_writer: Keyword.fetch!(opts, :firmware_writer),
       http_client: Keyword.get(opts, :http_client, NervesHubLinkAVM.HTTPClient),
       extensions: parse_and_init_extensions(Keyword.get(opts, :extensions, []))
     }

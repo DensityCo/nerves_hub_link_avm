@@ -13,14 +13,14 @@ defmodule NervesHubLinkAVM.Client.Default do
   def update_available(_meta), do: :apply
 
   @impl true
-  def fwup_progress(percent) do
-    IO.puts("NervesHubLinkAVM: fwup progress #{percent}%")
+  def firmware_progress(percent) do
+    IO.puts("NervesHubLinkAVM: firmware progress #{percent}%")
     :ok
   end
 
   @impl true
-  def fwup_error(error) do
-    IO.puts("NervesHubLinkAVM: fwup error: #{inspect(error)}")
+  def firmware_error(error) do
+    IO.puts("NervesHubLinkAVM: firmware error: #{inspect(error)}")
     :ok
   end
 

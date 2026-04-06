@@ -28,7 +28,7 @@ Initial release.
 - Shared secret (HMAC) authentication with product key/secret
 - OTA firmware updates with streaming download and SHA256 verification
 - Pluggable `Client` behaviour for update decisions, progress, and lifecycle hooks
-- Pluggable `FwupWriter` behaviour for hardware-specific firmware writes
+- Pluggable `FirmwareWriter` behaviour for hardware-specific firmware writes
 - `Client.Default` implementation that auto-applies all updates
 - Update lifecycle status reporting (received, downloading, updating, fwup_complete, update_failed)
 - Update decision control (apply, ignore, reschedule)
@@ -42,7 +42,7 @@ Initial release.
 - Nameable GenServer (supports multiple instances)
 - `Configurator` module for runtime config building
 - `Downloader` module for HTTP streaming with SHA256 verification
-- `UpdateManager` to orchestrate Client + FwupWriter + Downloader
+- `UpdateManager` to orchestrate Client + FirmwareWriter + Downloader
 - Custom JSON encoder/decoder for AtomVM compatibility
 - Custom WebSocket client (RFC 6455) with TCP and TLS support
 - Case-insensitive HTTP header parsing for server compatibility
@@ -53,7 +53,7 @@ Initial release.
 ```
 NervesHubLinkAVM (GenServer)
 ├── Client / Client.Default
-├── FwupWriter
+├── FirmwareWriter
 ├── Configurator
 ├── UpdateManager + Downloader
 ├── Extension / Extension.Health / HealthProvider

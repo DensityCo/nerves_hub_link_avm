@@ -2,7 +2,7 @@ defmodule NervesHubLinkAVM.UpdateManager do
   @moduledoc false
 
   # Orchestrates firmware updates by bridging Client (decisions/progress)
-  # and FwupWriter (hardware writes) through Downloader (HTTP streaming).
+  # and FirmwareWriter (hardware writes) through Downloader (HTTP streaming).
   #
   # Called from the main GenServer via run/5. Runs in a spawned process.
   # Sends status updates back to the GenServer for channel delivery.
@@ -17,7 +17,7 @@ defmodule NervesHubLinkAVM.UpdateManager do
   """
   def run(fw_url, meta, config, server) do
     client = config.client
-    writer = config.fwup_writer
+    writer = config.firmware_writer
     http = config.http_client
     expected_sha256 = Map.get(meta, "sha256", "")
 
@@ -36,11 +36,11 @@ defmodule NervesHubLinkAVM.UpdateManager do
   end
 
   defp apply_update(http, fw_url, expected_sha256, meta, writer, client, server) do
-    with {:ok, writer_state} <- writer.fwup_begin(0, meta) do
+    with {:ok, writer_state} <- writer.firmware_begin(0, meta) do
       send_status(server, "downloading")
 
       progress_fn = fn percent ->
-        Client.call_fwup_progress(client, percent)
+        Client.call_firmware_progress(client, percent)
         send_progress(server, percent)
       end
 
@@ -48,23 +48,23 @@ defmodule NervesHubLinkAVM.UpdateManager do
         {:ok, writer_state} ->
           send_status(server, "updating")
 
-          case writer.fwup_finish(writer_state) do
+          case writer.firmware_finish(writer_state) do
             :ok ->
               send_status(server, "fwup_complete")
 
             {:error, reason} ->
-              writer.fwup_abort(writer_state)
-              Client.call_fwup_error(client, reason)
+              writer.firmware_abort(writer_state)
+              Client.call_firmware_error(client, reason)
               send_status(server, "update_failed")
           end
 
         {:error, reason} ->
-          Client.call_fwup_error(client, reason)
+          Client.call_firmware_error(client, reason)
           send_status(server, "update_failed")
       end
     else
       {:error, reason} ->
-        Client.call_fwup_error(client, reason)
+        Client.call_firmware_error(client, reason)
         send_status(server, "update_failed")
     end
   end

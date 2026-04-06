@@ -3,7 +3,7 @@ defmodule NervesHubLinkAVM do
   NervesHub client for AtomVM devices.
 
   Manages a WebSocket connection to a NervesHub server, handles the Phoenix
-  channel protocol, and orchestrates firmware updates via `Client` and `FwupWriter`.
+  channel protocol, and orchestrates firmware updates via `Client` and `FirmwareWriter`.
 
   ## Starting
 
@@ -19,7 +19,7 @@ defmodule NervesHubLinkAVM do
           "platform" => "esp32"
         },
         client: MyApp.Client,
-        fwup_writer: MyApp.ESP32Writer
+        firmware_writer: MyApp.ESP32Writer
       )
 
   ## Options
@@ -31,7 +31,7 @@ defmodule NervesHubLinkAVM do
   * `:product_key` / `:product_secret` / `:identifier` - shared secret authentication
   * `:firmware_meta` - map with keys: `uuid`, `product`, `architecture`, `version`, `platform`
   * `:client` - module implementing `NervesHubLinkAVM.Client` (default: `Client.Default`)
-  * `:fwup_writer` - module implementing `NervesHubLinkAVM.FwupWriter` (required)
+  * `:firmware_writer` - module implementing `NervesHubLinkAVM.FirmwareWriter` (required)
   * `:extensions` - keyword list of extensions, e.g. `[health: MyApp.HealthProvider]`
   * `:name` - GenServer name (default: `NervesHubLinkAVM`)
   """
@@ -110,7 +110,7 @@ defmodule NervesHubLinkAVM do
 
   @impl true
   def handle_call(:confirm_update, _from, state) do
-    writer = state.config.fwup_writer
+    writer = state.config.firmware_writer
 
     with :ok <- do_confirm(writer) do
       if state.phase == :joined, do: send_channel_message(state, "firmware_validated", %{})
@@ -121,8 +121,8 @@ defmodule NervesHubLinkAVM do
   end
 
   defp do_confirm(writer) do
-    if function_exported?(writer, :fwup_confirm, 0),
-      do: writer.fwup_confirm(),
+    if function_exported?(writer, :firmware_confirm, 0),
+      do: writer.firmware_confirm(),
       else: :ok
   end
 

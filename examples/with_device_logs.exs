@@ -18,7 +18,7 @@ NervesHubLinkAVM.start_link(
     "platform" => "esp32"
   },
   client: MyApp.Client,
-  fwup_writer: MyApp.ESP32Writer,
+  firmware_writer: MyApp.ESP32Writer,
   extensions: [
     logging: true
   ]

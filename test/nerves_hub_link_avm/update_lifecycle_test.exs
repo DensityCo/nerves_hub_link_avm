@@ -73,33 +73,33 @@ defmodule NervesHubLinkAVM.UpdateLifecycleTest do
   # -- Test handlers --
 
   defmodule TestHandler do
-    @behaviour NervesHubLinkAVM.FwupWriter
+    @behaviour NervesHubLinkAVM.FirmwareWriter
 
-    def fwup_begin(size, meta) do
+    def firmware_begin(size, meta) do
       send(:lifecycle_test, {:begin, size, meta})
       {:ok, %{chunks: []}}
     end
 
-    def fwup_chunk(data, state), do: {:ok, %{state | chunks: state.chunks ++ [data]}}
+    def firmware_chunk(data, state), do: {:ok, %{state | chunks: state.chunks ++ [data]}}
 
-    def fwup_finish(state) do
+    def firmware_finish(state) do
       send(:lifecycle_test, {:finish, state})
       :ok
     end
 
-    def fwup_abort(state) do
+    def firmware_abort(state) do
       send(:lifecycle_test, {:abort, state})
       :ok
     end
   end
 
   defmodule FailBeginHandler do
-    @behaviour NervesHubLinkAVM.FwupWriter
+    @behaviour NervesHubLinkAVM.FirmwareWriter
 
-    def fwup_begin(_, _), do: {:error, :no_space}
-    def fwup_chunk(_, s), do: {:ok, s}
-    def fwup_finish(_), do: :ok
-    def fwup_abort(_), do: :ok
+    def firmware_begin(_, _), do: {:error, :no_space}
+    def firmware_chunk(_, s), do: {:ok, s}
+    def firmware_finish(_), do: :ok
+    def firmware_abort(_), do: :ok
   end
 
   # -- Helpers --
@@ -116,7 +116,7 @@ defmodule NervesHubLinkAVM.UpdateLifecycleTest do
         "version" => "1.0.0",
         "platform" => "host"
       },
-      fwup_writer: handler,
+      firmware_writer: handler,
       http_client: MockHTTP
     ]
   end

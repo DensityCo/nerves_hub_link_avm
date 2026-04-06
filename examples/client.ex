@@ -8,14 +8,14 @@ defmodule MyApp.Client do
 
   # Called with download/apply progress percentage.
   @impl true
-  def fwup_progress(percent) do
+  def firmware_progress(percent) do
     IO.puts("Update progress: #{percent}%")
     :ok
   end
 
   # Called when a firmware update fails.
   @impl true
-  def fwup_error(error) do
+  def firmware_error(error) do
     IO.puts("Update failed: #{inspect(error)}")
     :ok
   end

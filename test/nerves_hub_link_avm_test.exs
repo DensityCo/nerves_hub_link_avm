@@ -4,33 +4,33 @@ defmodule NervesHubLinkAVMTest do
   alias NervesHubLinkAVM.Channel
 
   defmodule MockWriter do
-    @behaviour NervesHubLinkAVM.FwupWriter
+    @behaviour NervesHubLinkAVM.FirmwareWriter
 
     @impl true
-    def fwup_begin(size, meta) do
+    def firmware_begin(size, meta) do
       send(:test_proc, {:begin, size, meta})
       {:ok, %{chunks: []}}
     end
 
     @impl true
-    def fwup_chunk(data, state) do
+    def firmware_chunk(data, state) do
       {:ok, %{state | chunks: state.chunks ++ [data]}}
     end
 
     @impl true
-    def fwup_finish(_state) do
+    def firmware_finish(_state) do
       send(:test_proc, :finish)
       :ok
     end
 
     @impl true
-    def fwup_confirm do
+    def firmware_confirm do
       send(:test_proc, :confirm)
       :ok
     end
 
     @impl true
-    def fwup_abort(state) do
+    def firmware_abort(state) do
       send(:test_proc, {:abort, state})
       :ok
     end
@@ -69,7 +69,7 @@ defmodule NervesHubLinkAVMTest do
         "version" => "1.0.0",
         "platform" => "host"
       },
-      fwup_writer: MockWriter,
+      firmware_writer: MockWriter,
       client: MockClient
     ]
   end
@@ -85,7 +85,7 @@ defmodule NervesHubLinkAVMTest do
       assert state.config.auth == {:certificate, "fake_cert", "fake_key"}
       assert state.config.firmware_meta["uuid"] == "test-uuid"
       assert state.config.firmware_meta["platform"] == "host"
-      assert state.config.fwup_writer == MockWriter
+      assert state.config.firmware_writer == MockWriter
       assert state.config.client == MockClient
       assert state.msg_ref == 0
       assert state.phase == :disconnected
@@ -258,7 +258,7 @@ defmodule NervesHubLinkAVMTest do
   end
 
   describe "handle_call/3 - confirm_update" do
-    test "calls writer's fwup_confirm when implemented" do
+    test "calls writer's firmware_confirm when implemented" do
       Process.register(self(), :test_proc)
       {:ok, state} = NervesHubLinkAVM.init(default_opts())
       assert_receive :connect
@@ -284,15 +284,15 @@ defmodule NervesHubLinkAVMTest do
 
     test "does not set firmware_validated on writer error" do
       defmodule FailConfirmWriter do
-        @behaviour NervesHubLinkAVM.FwupWriter
-        def fwup_begin(_, _), do: {:ok, %{}}
-        def fwup_chunk(_, s), do: {:ok, s}
-        def fwup_finish(_), do: :ok
-        def fwup_confirm, do: {:error, :nope}
-        def fwup_abort(_), do: :ok
+        @behaviour NervesHubLinkAVM.FirmwareWriter
+        def firmware_begin(_, _), do: {:ok, %{}}
+        def firmware_chunk(_, s), do: {:ok, s}
+        def firmware_finish(_), do: :ok
+        def firmware_confirm, do: {:error, :nope}
+        def firmware_abort(_), do: :ok
       end
 
-      opts = Keyword.put(default_opts(), :fwup_writer, FailConfirmWriter)
+      opts = Keyword.put(default_opts(), :firmware_writer, FailConfirmWriter)
       {:ok, state} = NervesHubLinkAVM.init(opts)
       assert_receive :connect
       state = %{state | ws_pid: self(), phase: :joined, join_ref: "join_0"}
@@ -378,7 +378,7 @@ defmodule NervesHubLinkAVMTest do
           "version" => "1.0.0",
           "platform" => "host"
         },
-        fwup_writer: MockWriter
+        firmware_writer: MockWriter
       ]
 
       {:ok, state} = NervesHubLinkAVM.init(opts)
@@ -396,7 +396,7 @@ defmodule NervesHubLinkAVMTest do
           "version" => "1.0.0",
           "platform" => "host"
         },
-        fwup_writer: MockWriter
+        firmware_writer: MockWriter
       ]
 
       assert_raise ArgumentError, ~r/must provide either/, fn ->

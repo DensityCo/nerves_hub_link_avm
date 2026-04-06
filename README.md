@@ -60,7 +60,7 @@ NervesHubLinkAVM.start_link(
     "platform" => "esp32"
   },
   client: MyApp.Client,
-  fwup_writer: MyApp.ESP32Writer
+  firmware_writer: MyApp.ESP32Writer
 )
 ```
 
@@ -74,7 +74,7 @@ NervesHubLinkAVM.start_link(
   identifier: "my-device-001",
   firmware_meta: %{ ... },
   client: MyApp.Client,
-  fwup_writer: MyApp.ESP32Writer
+  firmware_writer: MyApp.ESP32Writer
 )
 ```
 
@@ -109,10 +109,10 @@ defmodule MyApp.Client do
   def update_available(_meta), do: :apply  # or :ignore or {:reschedule, 60_000}
 
   @impl true
-  def fwup_progress(percent), do: IO.puts("Progress: #{percent}%")
+  def firmware_progress(percent), do: IO.puts("Progress: #{percent}%")
 
   @impl true
-  def fwup_error(error), do: IO.puts("Error: #{inspect(error)}")
+  def firmware_error(error), do: IO.puts("Error: #{inspect(error)}")
 
   @impl true
   def reboot, do: :ok
@@ -130,41 +130,41 @@ end
 
 A default implementation (`NervesHubLinkAVM.Client.Default`) is used if no `:client` is provided.
 
-### FwupWriter behaviour
+### FirmwareWriter behaviour
 
-The `FwupWriter` handles hardware-specific firmware write operations. Implement this for your target platform.
+The `FirmwareWriter` handles hardware-specific firmware write operations. Implement this for your target platform.
 
 ```elixir
 defmodule MyApp.ESP32Writer do
-  @behaviour NervesHubLinkAVM.FwupWriter
+  @behaviour NervesHubLinkAVM.FirmwareWriter
 
   @impl true
-  def fwup_begin(size, _meta) do
+  def firmware_begin(size, _meta) do
     # Erase inactive partition, allocate buffers
     {:ok, %{offset: 0, size: size}}
   end
 
   @impl true
-  def fwup_chunk(data, state) do
+  def firmware_chunk(data, state) do
     # Write chunk to flash
     {:ok, %{state | offset: state.offset + byte_size(data)}}
   end
 
   @impl true
-  def fwup_finish(_state) do
+  def firmware_finish(_state) do
     # Activate new slot, reboot
     :ok
   end
 
   @impl true
-  def fwup_abort(_state) do
+  def firmware_abort(_state) do
     # Clean up partial writes
     :ok
   end
 
   # Optional: confirm firmware on first boot
   @impl true
-  def fwup_confirm, do: :ok
+  def firmware_confirm, do: :ok
 end
 ```
 
@@ -229,13 +229,13 @@ See `examples/with_device_logs.exs` for a full example.
 When the server pushes a firmware update:
 
 1. `Client.update_available/1` is called -- returns `:apply`, `:ignore`, or `{:reschedule, ms}`
-2. If `:apply`, calls `FwupWriter.fwup_begin/2`
-3. Reports `"downloading"` and streams chunks through `FwupWriter.fwup_chunk/2`
+2. If `:apply`, calls `FirmwareWriter.firmware_begin/2`
+3. Reports `"downloading"` and streams chunks through `FirmwareWriter.firmware_chunk/2`
 4. Verifies SHA256 hash of the downloaded firmware
-5. Reports `"updating"` and calls `FwupWriter.fwup_finish/1`
+5. Reports `"updating"` and calls `FirmwareWriter.firmware_finish/1`
 6. Reports `"fwup_complete"` on success
 
-If SHA256 verification fails or any step errors, `FwupWriter.fwup_abort/1` is called and `"update_failed"` is reported.
+If SHA256 verification fails or any step errors, `FirmwareWriter.firmware_abort/1` is called and `"update_failed"` is reported.
 
 ### Channel messages handled
 
@@ -255,10 +255,10 @@ NervesHubLinkAVM (GenServer)    -- connection lifecycle, message dispatch
   |-- Client (behaviour)        -- update decisions, progress, lifecycle hooks
   |   +-- Client.Default        -- auto-apply, log everything
   |
-  |-- FwupWriter (behaviour)    -- hardware-specific firmware writes
+  |-- FirmwareWriter (behaviour)    -- hardware-specific firmware writes
   |
   |-- Configurator              -- builds config from opts (auth, URL, SSL)
-  |-- UpdateManager             -- orchestrates Client + FwupWriter + Downloader
+  |-- UpdateManager             -- orchestrates Client + FirmwareWriter + Downloader
   |-- Downloader                -- HTTP streaming + SHA256 verification
   |
   |-- Extension (behaviour)     -- pluggable extension interface

@@ -1,10 +1,10 @@
 defmodule MyApp.ESP32Writer do
-  @behaviour NervesHubLinkAVM.FwupWriter
+  @behaviour NervesHubLinkAVM.FirmwareWriter
 
   # Prepare for firmware write.
   # Erase the inactive partition, allocate buffers, etc.
   @impl true
-  def fwup_begin(size, _meta) do
+  def firmware_begin(size, _meta) do
     IO.puts("Starting firmware update: #{size} bytes")
     # Example: erase the inactive partition
     # :partition_nif.erase(:inactive)
@@ -13,7 +13,7 @@ defmodule MyApp.ESP32Writer do
 
   # Write a chunk of firmware data at the current position.
   @impl true
-  def fwup_chunk(data, state) do
+  def firmware_chunk(data, state) do
     # Example: write chunk to flash partition
     # :partition_nif.write(:inactive, state.offset, data)
     new_offset = state.offset + byte_size(data)
@@ -22,7 +22,7 @@ defmodule MyApp.ESP32Writer do
 
   # Finalize the write. Activate the new firmware slot and reboot.
   @impl true
-  def fwup_finish(_state) do
+  def firmware_finish(_state) do
     IO.puts("Firmware verified, activating and rebooting")
     # Example: swap to the new partition and restart
     # :boot_env_nif.swap()
@@ -32,7 +32,7 @@ defmodule MyApp.ESP32Writer do
 
   # Clean up after a failed update. Roll back partial writes.
   @impl true
-  def fwup_abort(_state) do
+  def firmware_abort(_state) do
     IO.puts("Firmware update aborted, cleaning up")
     :ok
   end
@@ -41,7 +41,7 @@ defmodule MyApp.ESP32Writer do
   # Called via NervesHubLinkAVM.confirm_update/0.
   # Prevents automatic rollback.
   @impl true
-  def fwup_confirm do
+  def firmware_confirm do
     IO.puts("Firmware confirmed, marking as valid")
     # Example: mark the current slot as valid
     # :boot_env_nif.mark_valid()

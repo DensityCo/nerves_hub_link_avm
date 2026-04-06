@@ -1,7 +1,7 @@
 defmodule NervesHubLinkAVM.Downloader do
   @moduledoc false
 
-  # Downloads firmware via HTTP, streams chunks through FwupWriter,
+  # Downloads firmware via HTTP, streams chunks through FirmwareWriter,
   # computes SHA256 incrementally, and reports progress.
   # Pure module — no GenServer, no state beyond the download.
 
@@ -18,11 +18,11 @@ defmodule NervesHubLinkAVM.Downloader do
       {:ok, writer_state}
     else
       {:error, reason, writer_state} ->
-        writer.fwup_abort(writer_state)
+        writer.firmware_abort(writer_state)
         {:error, reason}
 
       {:error, reason} ->
-        writer.fwup_abort(writer_state)
+        writer.firmware_abort(writer_state)
         {:error, reason}
     end
   end
@@ -56,7 +56,7 @@ defmodule NervesHubLinkAVM.Downloader do
   end
 
   defp chunk_callback(chunk, acc) do
-    with {:ok, new_ws} <- acc.writer.fwup_chunk(chunk, acc.writer_state) do
+    with {:ok, new_ws} <- acc.writer.firmware_chunk(chunk, acc.writer_state) do
       bytes = acc.bytes_received + byte_size(chunk)
       progress = calc_progress(bytes, acc.total_size)
 
