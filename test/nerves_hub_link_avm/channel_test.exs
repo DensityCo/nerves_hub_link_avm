@@ -58,10 +58,8 @@ defmodule NervesHubLinkAVM.ChannelTest do
       assert {:error, {:unexpected_format, _}} = Channel.decode_message(IO.iodata_to_binary(raw))
     end
 
-    test "raises on invalid JSON" do
-      assert_raise MatchError, fn ->
-        Channel.decode_message("{not json")
-      end
+    test "returns error on invalid JSON" do
+      assert {:error, _} = Channel.decode_message("{not json")
     end
   end
 

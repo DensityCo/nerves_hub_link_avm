@@ -148,30 +148,66 @@ defmodule NervesHubLinkAVM do
   @impl true
   def handle_cast({:log, level, message}, state) do
     if Extensions.attached?(state.config.extensions, :logging) do
-      send_extensions_message(state, "logging:send", build_log_payload(level, message))
-    end
+      payload = %{"level" => level, "message" => message}
 
-    {:noreply, state}
+      case Extensions.handle_event("logging:send", payload, state.config.extensions) do
+        {:reply, event, reply_payload, updated_extensions} ->
+          send_extensions_message(state, event, reply_payload)
+          {:noreply, update_extensions(state, updated_extensions)}
+
+        {:noreply, _updated_extensions} ->
+          {:noreply, state}
+      end
+    else
+      {:noreply, state}
+    end
   end
 
   # -- Connection lifecycle --
 
   @impl true
   def handle_info(:connect, state) do
+    # Shared secret auth requires valid clock for HMAC timestamp
+    needs_clock = match?({:shared_secret, _, _, _}, state.config.auth)
+
+    time = NervesHubLinkAVM.SharedSecret.unix_time()
+
+    if needs_clock and time < 1_000_000_000 do
+      IO.puts("NervesHubLinkAVM: clock not set (unix_time=#{time}), waiting for SNTP sync...")
+      {:noreply, schedule_reconnect(state)}
+    else
+      if needs_clock do
+        IO.puts("NervesHubLinkAVM: clock ok (unix_time=#{time})")
+      end
+
+      do_connect(state)
+    end
+  end
+
+  defp do_connect(state) do
     config = state.config
     state = %{state | phase: :connecting, reconnect_ref: nil}
+    ws_opts = refresh_auth_headers(config)
 
     IO.puts("NervesHubLinkAVM: connecting to #{config.url}")
 
-    case :websocket.new(:erlang.binary_to_list(config.url), config.ws_opts) do
+    case :websocket.new(:erlang.binary_to_list(config.url), ws_opts) do
       {:ok, ws} ->
         {:noreply, %{state | ws_pid: ws}}
 
       {:error, reason} ->
-        IO.puts("NervesHubLinkAVM: connection failed: #{inspect(reason)}")
+        backoff = state.backoff
+        IO.puts("NervesHubLinkAVM: unable to reach server, retrying in #{div(backoff, 1000)}s")
         {:noreply, schedule_reconnect(state)}
     end
   end
+
+  defp refresh_auth_headers(%{auth: {:shared_secret, key, secret, id}} = config) do
+    headers = NervesHubLinkAVM.SharedSecret.build_headers(key, secret, id)
+    Keyword.put(config.ws_opts, :extra_headers, headers)
+  end
+
+  defp refresh_auth_headers(config), do: config.ws_opts
 
   def handle_info({:websocket_open, ws_pid}, %State{ws_pid: ws_pid} = state) do
     IO.puts("NervesHubLinkAVM: WebSocket connected")
@@ -369,18 +405,6 @@ defmodule NervesHubLinkAVM do
   defp send_extensions_message(state, event, payload) do
     send_ws(state, state.extensions_join_ref, "extensions", event, payload)
   end
-
-  defp build_log_payload(level, message) do
-    %{
-      "level" => normalize_log_level(level),
-      "message" => NervesHubLinkAVM.LoggerHandler.format_message(message),
-      "meta" => %{"time" => Integer.to_string(:erlang.system_time(:microsecond))}
-    }
-  end
-
-  defp normalize_log_level(level) when is_atom(level), do: :erlang.atom_to_binary(level)
-  defp normalize_log_level(level) when is_binary(level), do: level
-  defp normalize_log_level(level), do: IO.iodata_to_binary(:io_lib.format("~p", [level]))
 
   defp update_extensions(state, updated) do
     %{state | config: %{state.config | extensions: updated}}

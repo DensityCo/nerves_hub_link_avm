@@ -55,7 +55,7 @@ defmodule NervesHubLinkAVM.SharedSecret do
   defp strip_padding(<<"/", rest::binary>>, acc), do: strip_padding(rest, <<acc::binary, "_">>)
   defp strip_padding(<<c, rest::binary>>, acc), do: strip_padding(rest, <<acc::binary, c>>)
 
-  defp unix_time do
+  def unix_time do
     {{y, mo, d}, {h, mi, s}} = :erlang.universaltime()
     days = days_since_epoch(y, mo, d)
     days * 86400 + h * 3600 + mi * 60 + s

@@ -176,10 +176,9 @@ defmodule NervesHubLinkAVMTest do
       {:noreply, ^state} = NervesHubLinkAVM.handle_info({:websocket, unknown_pid, "data"}, state)
     end
 
-    test "malformed JSON raises", %{state: state, ws: ws} do
-      assert_raise MatchError, fn ->
+    test "malformed JSON is handled gracefully", %{state: state, ws: ws} do
+      {:noreply, ^state} =
         NervesHubLinkAVM.handle_info({:websocket, ws, "{bad json"}, state)
-      end
     end
   end
 

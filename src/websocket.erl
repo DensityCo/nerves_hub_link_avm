@@ -94,18 +94,22 @@ init({accept, ControllingProcess, Transport}) ->
     State1 = start_recv(State0),
     {ok, State1};
 init({connect, ControllingProcess, URL, Opts}) ->
-    {ok, Transport} = websocket_open(URL, Opts),
-    ControllingProcess ! {websocket_open, self()},
-    State0 = #state{
-        controlling_process = ControllingProcess,
-        transport = Transport,
-        ready_state = open,
-        is_server = false,
-        buffer = <<>>,
-        frames = undefined
-    },
-    State1 = start_recv(State0),
-    {ok, State1}.
+    case websocket_open(URL, Opts) of
+        {ok, Transport} ->
+            ControllingProcess ! {websocket_open, self()},
+            State0 = #state{
+                controlling_process = ControllingProcess,
+                transport = Transport,
+                ready_state = open,
+                is_server = false,
+                buffer = <<>>,
+                frames = undefined
+            },
+            State1 = start_recv(State0),
+            {ok, State1};
+        {error, Reason} ->
+            {stop, Reason}
+    end.
 
 handle_call(ready_state, _From, #state{ready_state = ReadyState} = State) ->
     {reply, ReadyState, State};
@@ -263,11 +267,12 @@ websocket_open(URL, Opts) ->
     end,
     SslOpts = proplists:get_value(ssl_opts, Opts, []),
     ExtraHeaders = proplists:get_value(extra_headers, Opts, []),
-    Transport = case Scheme of
+    case case Scheme of
         ws -> connect_tcp(Host, Port);
         wss -> connect_ssl(Host, Port, SslOpts)
-    end,
-    {ok, Sock} = Transport,
+    end of
+        {error, _} = ConnErr -> ConnErr;
+        {ok, Sock} ->
     Key = base64:encode(crypto:strong_rand_bytes(16)),
     HeaderLines = lists:map(fun({Name, Value}) ->
         [Name, <<": ">>, Value, <<"\r\n">>]
@@ -286,7 +291,8 @@ websocket_open(URL, Opts) ->
     ReplyToken = compute_socket_accept(Key),
     {ok, Reply} = get_http_message(Sock),
     ok = process_handshake_open_reply(Reply, ReplyToken),
-    {ok, Sock}.
+    {ok, Sock}
+    end.
 
 connect_tcp(Host, Port) ->
     {ok, IPv4} = inet:getaddr(binary_to_list(Host), inet),
