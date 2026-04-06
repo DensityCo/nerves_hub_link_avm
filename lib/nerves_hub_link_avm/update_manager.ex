@@ -18,10 +18,10 @@ defmodule NervesHubLinkAVM.UpdateManager do
     expected_sha256 = Map.get(meta, "sha256", "")
 
     with :apply <- config.client.update_available(meta),
-         {:ok, ws} <- config.firmware_writer.firmware_begin(0, meta),
-         {:ok, vs} <- config.verifier.init(expected_sha256) do
+         {:ok, writer_state} <- config.firmware_writer.firmware_begin(0, meta),
+         {:ok, verify_state} <- config.verifier.init(expected_sha256) do
       send_status(server, "downloading")
-      run_pipeline(config, fw_url, vs, ws, server)
+      run_pipeline(config, fw_url, verify_state, writer_state, server)
     else
       :ignore ->
         send_status(server, "ignored")
@@ -39,10 +39,10 @@ defmodule NervesHubLinkAVM.UpdateManager do
 
   # After begin + init succeed, writer_state is available for abort on any failure.
   defp run_pipeline(config, fw_url, verify_state, writer_state, server) do
-    chunk_fn = fn chunk, {vs, ws} ->
-      with {:ok, vs} <- config.verifier.update(chunk, vs),
-           {:ok, ws} <- config.firmware_writer.firmware_chunk(chunk, ws) do
-        {:ok, {vs, ws}}
+    chunk_fn = fn chunk, {verify_state, writer_state} ->
+      with {:ok, verify_state} <- config.verifier.update(chunk, verify_state),
+           {:ok, writer_state} <- config.firmware_writer.firmware_chunk(chunk, writer_state) do
+        {:ok, {verify_state, writer_state}}
       end
     end
 
@@ -51,11 +51,11 @@ defmodule NervesHubLinkAVM.UpdateManager do
       send_progress(server, percent)
     end
 
-    with {:ok, {vs, ws}} <-
+    with {:ok, {verify_state, writer_state}} <-
            Downloader.download(config.http_client, fw_url, chunk_fn, {verify_state, writer_state}, progress_fn),
-         :ok <- config.verifier.finish(vs),
+         :ok <- config.verifier.finish(verify_state),
          :ok <- send_status(server, "updating"),
-         :ok <- config.firmware_writer.firmware_finish(ws) do
+         :ok <- config.firmware_writer.firmware_finish(writer_state) do
       send_status(server, "fwup_complete")
     else
       {:error, reason} ->
