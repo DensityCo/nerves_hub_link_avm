@@ -9,6 +9,11 @@ defmodule NervesHubLinkAVM.UpdateManager do
 
   alias NervesHubLinkAVM.Downloader
 
+  defmodule Update do
+    @moduledoc false
+    defstruct [:writer_state, :verify_state]
+  end
+
   @doc """
   Run the update pipeline. Called in a spawned process.
 
@@ -18,10 +23,13 @@ defmodule NervesHubLinkAVM.UpdateManager do
     expected_sha256 = Map.get(meta, "sha256", "")
 
     with :apply <- config.client.update_available(meta),
-         {:ok, writer_state} <- config.firmware_writer.firmware_begin(0, meta),
-         {:ok, verify_state} <- config.verifier.init(expected_sha256) do
-      send_status(server, "downloading")
-      run_pipeline(config, fw_url, verify_state, writer_state, server)
+         {:ok, update} <- init_update(config, expected_sha256, meta),
+         :ok <- send_status(server, "downloading"),
+         {:ok, update} <- download_chunks(config, fw_url, update, server),
+         :ok <- finish_verify(config, update),
+         :ok <- send_status(server, "updating"),
+         :ok <- finish_write(config, update) do
+      send_status(server, "fwup_complete")
     else
       :ignore ->
         send_status(server, "ignored")
@@ -34,11 +42,22 @@ defmodule NervesHubLinkAVM.UpdateManager do
       {:error, reason} ->
         config.client.firmware_error(reason)
         send_status(server, "update_failed")
+
+      {:error, reason, %Update{} = update} ->
+        config.firmware_writer.firmware_abort(update.writer_state)
+        config.client.firmware_error(reason)
+        send_status(server, "update_failed")
     end
   end
 
-  # After begin + init succeed, writer_state is available for abort on any failure.
-  defp run_pipeline(config, fw_url, verify_state, writer_state, server) do
+  defp init_update(config, expected_sha256, meta) do
+    with {:ok, writer_state} <- config.firmware_writer.firmware_begin(0, meta),
+         {:ok, verify_state} <- config.verifier.init(expected_sha256) do
+      {:ok, %Update{writer_state: writer_state, verify_state: verify_state}}
+    end
+  end
+
+  defp download_chunks(config, fw_url, update, server) do
     chunk_fn = fn chunk, {verify_state, writer_state} ->
       with {:ok, verify_state} <- config.verifier.update(chunk, verify_state),
            {:ok, writer_state} <- config.firmware_writer.firmware_chunk(chunk, writer_state) do
@@ -51,17 +70,28 @@ defmodule NervesHubLinkAVM.UpdateManager do
       send_progress(server, percent)
     end
 
-    with {:ok, {verify_state, writer_state}} <-
-           Downloader.download(config.http_client, fw_url, chunk_fn, {verify_state, writer_state}, progress_fn),
-         :ok <- config.verifier.finish(verify_state),
-         :ok <- send_status(server, "updating"),
-         :ok <- config.firmware_writer.firmware_finish(writer_state) do
-      send_status(server, "fwup_complete")
-    else
+    acc = {update.verify_state, update.writer_state}
+
+    case Downloader.download(config.http_client, fw_url, chunk_fn, acc, progress_fn) do
+      {:ok, {verify_state, writer_state}} ->
+        {:ok, %Update{verify_state: verify_state, writer_state: writer_state}}
+
       {:error, reason} ->
-        config.firmware_writer.firmware_abort(writer_state)
-        config.client.firmware_error(reason)
-        send_status(server, "update_failed")
+        {:error, reason, update}
+    end
+  end
+
+  defp finish_verify(config, update) do
+    case config.verifier.finish(update.verify_state) do
+      :ok -> :ok
+      {:error, reason} -> {:error, reason, update}
+    end
+  end
+
+  defp finish_write(config, update) do
+    case config.firmware_writer.firmware_finish(update.writer_state) do
+      :ok -> :ok
+      {:error, reason} -> {:error, reason, update}
     end
   end
 
