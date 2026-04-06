@@ -1,11 +1,28 @@
 defmodule NervesHubLinkAVM.HTTPClient do
-  @moduledoc false
+  @moduledoc """
+  Behaviour for HTTP operations needed during firmware downloads.
+
+  The default implementation uses `:ahttp_client` (AtomVM HTTP).
+  Implement this behaviour to use a different HTTP client.
+  """
+
+  @callback get_content_length(url :: String.t()) ::
+              {:ok, non_neg_integer()} | {:error, term()}
+
+  @callback get_stream(
+              url :: String.t(),
+              acc :: term(),
+              fun :: (binary(), term() -> {:ok, term()} | {:error, term()})
+            ) :: {:ok, term()} | {:error, term()}
+
+  @behaviour NervesHubLinkAVM.HTTPClient
 
   @max_redirects 5
 
   @doc """
   Sends an HTTP HEAD request and returns the Content-Length.
   """
+  @impl true
   def get_content_length(url) do
     {protocol, host, port, path} = parse_url(url)
 
@@ -26,6 +43,7 @@ defmodule NervesHubLinkAVM.HTTPClient do
   Streams an HTTP GET response body in chunks, calling `fun.(chunk, acc)` for each.
   Returns `{:ok, final_acc}` or `{:error, reason}`.
   """
+  @impl true
   def get_stream(url, acc, fun) do
     do_get_stream(url, acc, fun, 0)
   end

@@ -32,6 +32,8 @@ defmodule NervesHubLinkAVM do
   * `:firmware_meta` - map with keys: `uuid`, `product`, `architecture`, `version`, `platform`
   * `:client` - module implementing `NervesHubLinkAVM.Client` (default: `Client.Default`)
   * `:firmware_writer` - module implementing `NervesHubLinkAVM.FirmwareWriter` (required)
+  * `:http_client` - module implementing `NervesHubLinkAVM.HTTPClient` (default: `HTTPClient`)
+  * `:verifier` - module implementing `NervesHubLinkAVM.Verifier` (default: `Verifier.SHA256`)
   * `:extensions` - keyword list of extensions, e.g. `[health: MyApp.HealthProvider]`
   * `:name` - GenServer name (default: `NervesHubLinkAVM`)
   """
@@ -39,7 +41,6 @@ defmodule NervesHubLinkAVM do
   use GenServer
 
   alias NervesHubLinkAVM.Channel
-  alias NervesHubLinkAVM.Client
   alias NervesHubLinkAVM.Configurator
   alias NervesHubLinkAVM.Extensions
   alias NervesHubLinkAVM.UpdateManager
@@ -128,7 +129,7 @@ defmodule NervesHubLinkAVM do
 
   @impl true
   def handle_cast(:reconnect, state) do
-    Client.call_disconnected(state.config.client)
+    state.config.client.handle_disconnected()
     state = disconnect(state)
     send(self(), :connect)
     {:noreply, %{state | backoff: @initial_backoff}}
@@ -211,7 +212,7 @@ defmodule NervesHubLinkAVM do
 
   def handle_info({:websocket_open, ws_pid}, %State{ws_pid: ws_pid} = state) do
     IO.puts("NervesHubLinkAVM: WebSocket connected")
-    Client.call_connected(state.config.client)
+    state.config.client.handle_connected()
     state = %{state | phase: :connected, backoff: @initial_backoff}
     state = send_join(state)
     {:noreply, state}
@@ -231,7 +232,7 @@ defmodule NervesHubLinkAVM do
 
   def handle_info({:websocket_close, ws_pid, _reason}, %State{ws_pid: ws_pid} = state) do
     IO.puts("NervesHubLinkAVM: WebSocket closed")
-    Client.call_disconnected(state.config.client)
+    state.config.client.handle_disconnected()
     state = disconnect(state)
     {:noreply, schedule_reconnect(state)}
   end
@@ -283,14 +284,14 @@ defmodule NervesHubLinkAVM do
 
   defp handle_channel_message({_join_ref, _ref, "device", "reboot", _payload}, state) do
     IO.puts("NervesHubLinkAVM: reboot requested")
-    Client.call_reboot(state.config.client)
+    state.config.client.reboot()
     send_channel_message(state, "rebooting", %{})
     {:noreply, state}
   end
 
   defp handle_channel_message({_join_ref, _ref, "device", "identify", _payload}, state) do
     IO.puts("NervesHubLinkAVM: identify requested")
-    Client.call_identify(state.config.client)
+    state.config.client.identify()
     {:noreply, state}
   end
 
