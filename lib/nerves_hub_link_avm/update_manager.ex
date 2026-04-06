@@ -28,9 +28,15 @@ defmodule NervesHubLinkAVM.UpdateManager do
          update = %Update{writer_state: writer_state, verify_state: verify_state},
          :ok <- send_status(server, "downloading"),
          {:ok, update} <- download_chunks(config, fw_url, update, server),
-         :ok <- finish_verify(config, update),
+         :ok <- case config.verifier.finish(update.verify_state) do
+                  :ok -> :ok
+                  {:error, reason} -> {:error, reason, update}
+                end,
          :ok <- send_status(server, "updating"),
-         :ok <- finish_write(config, update) do
+         :ok <- case config.firmware_writer.firmware_finish(update.writer_state) do
+                  :ok -> :ok
+                  {:error, reason} -> {:error, reason, update}
+                end do
       send_status(server, "fwup_complete")
     else
       :ignore ->
@@ -73,20 +79,6 @@ defmodule NervesHubLinkAVM.UpdateManager do
 
       {:error, reason} ->
         {:error, reason, update}
-    end
-  end
-
-  defp finish_verify(config, update) do
-    case config.verifier.finish(update.verify_state) do
-      :ok -> :ok
-      {:error, reason} -> {:error, reason, update}
-    end
-  end
-
-  defp finish_write(config, update) do
-    case config.firmware_writer.firmware_finish(update.writer_state) do
-      :ok -> :ok
-      {:error, reason} -> {:error, reason, update}
     end
   end
 
